@@ -7,3 +7,5 @@
 xcuserdata/
 
 *.zip
+
+rust/target/

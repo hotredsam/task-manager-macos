@@ -11,7 +11,8 @@ jobs:
         run: |
           sw_vers
           uname -m
-          swift --version
+          rustc --version
+          cargo --version
       - name: Core tests
         run: ./test.sh
       - name: Apple Silicon app

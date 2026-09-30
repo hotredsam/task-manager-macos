@@ -1,39 +1,17 @@
-# Windows 11 parity status
+# Windows 11 parity status — Rust edition
 
-The target is the Windows 11 Task Manager interface and workflow. This is a native macOS implementation with real macOS data. It does not claim certified pixel-for-pixel or feature-complete equivalence.
+The [reference list](VISUAL_REFERENCES.md) identifies the Windows screenshots used. The goal is close visual and interaction parity with real macOS data. It is not a certification of exact pixel identity.
 
-## Implemented
+Implemented: eight pages; collapsible navigation; custom caption controls; title dragging, maximize/restore and left/right snapping; centered search; application groups; resource heat cells; active sort shading/chevrons; resizable and selectable columns; multi-selection; context menus; live CPU/core/kernel graphs; memory composition; disk/network counters; launchd inventory; observed history; guarded process/service actions; power-mode integration; settings; keyboard navigation; accessible commands; rectangular inset scrollbars.
 
-| Area | Behavior |
-|---|---|
-| Window | Windows-style top-right minimize, maximize/restore, close; no traffic lights; draggable caption; double-click maximize; title-bar context menu; left/right/quarter snap commands; Option-F4 and Option-Space |
-| Shell | Centered rectangular search, compact command bar, 48-point icon rail with expanded navigation, eight main sections, light/dark appearance |
-| Processes | Apps/background/macOS process categories, expandable groups, icons, resource cells, ascending/descending sort, column resize/reorder/visibility, live search, retained selections |
-| Actions | Run new task, Properties, Go to details, Open file location, individual/group termination with confirmation and protection checks, copy PID/path/details |
-| CPU | Overall utilization, logical-processor grid sized dynamically for the Mac, per-core tooltips, kernel-time overlays, persistent graph selection |
-| Performance | CPU, Memory, Disk, Network, GPU; context-menu Copy and graph summary view; no extra Battery/Swap/Thermal navigation entries |
-| Other sections | Observed app history and reset, launchd startup inventory and eligible toggles, users and their processes, dense Details, launchd Services, settings |
-| Font and icon | Original Windows icon PNG bytes; Segoe UI when installed, otherwise Microsoft's SIL-licensed Selawik |
+Remaining differences:
 
-## Adaptations and remaining differences
+- Font rasterization and some glyph outlines differ from WinUI. The app icon's source pixels are preserved, but macOS controls display scaling/compositing.
+- Native text editing and authorization, property dialogs, and macOS's application menu differ from Windows. The Windows maximize-hover Snap Layout chooser and drag-to-reorder columns are not reproduced.
+- CPU, memory, process, service and user data have macOS meanings. Windows-only metrics/actions show unavailable or disabled states.
+- Disk/network views aggregate counters; separate device/adapter graphs and disk active-time percentages are not supplied. GPU utilization is unavailable.
+- Efficiency mode maps to whole-Mac Low Power Mode at the user's request. It is distinct from per-process EcoQoS. Priority lowering is a separate Details operation.
+- Startup management covers eligible user LaunchAgents, with a link to the authoritative macOS settings page; it cannot enumerate or control every protected background-item mechanism.
+- Only the documented M5 Pro Mac was physically tested. The app-side timing target does not guarantee input-to-photon latency on every display or workload.
 
-- The macOS application-menu bar, file pickers, text editing, accessibility, and rasterization do not exactly reproduce WinUI. Snap commands are available through the title-bar menu; the Windows Snap Layout hover flyout is not reproduced.
-- macOS process names, ownership, status, memory accounting, launchd labels, and available system details differ from Windows. “macOS processes” replaces “Windows processes.”
-- CPU graphs use real Mach processor counters. The CPU details panel reports information exposed on the current Mac; Windows fields without a supported counterpart are not invented.
-- Disk and network currently aggregate the published block-storage / physical-interface counters. Separate Windows-style per-disk/per-adapter pages and disk active-time graphs are not implemented.
-- GPU engine/utilization, per-process network accounting, Energy Impact, and dynamic CPU clock readings are not exposed by the supported APIs used here. GPU shows real Metal capabilities and explicitly unavailable utilization.
-- Efficiency mode deliberately maps to system-wide macOS Low Power Mode, not per-process Windows EcoQoS. It uses explicit confirmation and macOS administrator authorization, preserves the other power-source profile, and restores the previous mode when toggled off. Per-process priority is a separate Details action.
-- Windows affinity masks, Windows memory dumps, service start/stop controls, UAC elevation, registry startup entries, and Windows login/session commands are not mapped to unsafe or misleading substitutes.
-- Startup management is limited to eligible current-user LaunchAgents; the authoritative modern Login Items & Extensions page opens in System Settings.
-- Process termination protects critical/system/other-user processes and revalidates identity. A group with a protected member cannot be terminated through the group action.
-- Hardware validation currently covers the documented M5 Pro MacBook Pro. General M-series compatibility is a build target, not a claim that every model was physically tested.
-
-See [README.md](README.md) for API mappings and [VERIFICATION.md](VERIFICATION.md) for test evidence.
-
-## Reference-driven update
-
-The light reference now drives the default appearance, expanded navigation, graph/gray-frame app icon, navigation glyphs, command icons, process menu ordering, custom flyouts and submenus, selectors, checkboxes, and Settings layout. CPU statistics use the Windows live-values/metadata arrangement. Details and Services use compact rows. Startup and Services initially show the reference-style column subset, with extra macOS fields available through Select columns. Windows-only debug, dump, NUMA, and affinity entries remain disabled. The checked-in reference list identifies the precise images used; custom glyph outlines and macOS font rasterization have not been proven pixel-identical.
-
-The follow-up visual pass adds persistent sort-header shading and direction arrows, fixes the Services search field's centered text/editor bounds, redraws the Services puzzle-piece socket and service-row gear icons, and uses a fixed resource palette instead of macOS system colors. Performance thumbnails have simple borders without a dense grid; main graphs use thin traces, light fill, and a square neutral grid. Resource rows use a compact, neutral selection treatment.
-
-Tables, Settings, performance resource lists, and the inspector use space-reserving scrollbars with a pale track and rectangular thumb. AppKit continues to handle wheel/trackpad, dragging, paging, and accessibility.
+See [COMPONENT_AUDIT.md](COMPONENT_AUDIT.md) for verification coverage rather than assuming that every state on every Windows release has been tested.

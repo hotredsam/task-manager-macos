@@ -1,0 +1,31 @@
+[package]
+name = "task-manager"
+version = "2.0.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+objc2 = "=0.6.4"
+objc2-foundation = "=0.3.2"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
+  "std", "NSAccessibility", "NSAccessibilityConstants", "NSAccessibilityElement",
+  "NSAccessibilityProtocols", "NSActionCell", "NSApplication", "NSAttributedString",
+  "NSBitmapImageRep", "NSImageRep", "NSBezierPath", "NSButton", "NSButtonCell", "NSCell", "NSColor", "NSControl",
+  "NSEvent", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext",
+  "NSImage", "NSMenu", "NSMenuItem", "NSParagraphStyle", "NSPasteboard",
+  "NSResponder", "NSRunningApplication", "NSScreen", "NSStringDrawing", "NSText", "NSTextField",
+  "NSTextFieldCell", "NSTrackingArea", "NSView", "NSWindow", "NSWorkspace",
+  "libc", "objc2-core-foundation", "objc2-core-graphics"
+] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+plist = "1"
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

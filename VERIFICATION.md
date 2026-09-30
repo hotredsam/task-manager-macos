@@ -1,41 +1,56 @@
-# Verification report
+# Rust release verification
 
-Verified on an Apple Silicon Mac running macOS 26.5.1 with Swift 6.3.3 and Apple Command Line Tools. The package declares macOS 14 as its minimum; older supported versions have not been separately tested.
+Tested locally on a 16-inch MacBook Pro (2026), Mac17,8, Apple M5 Pro (18 CPU cores), 48 GB RAM, macOS 26.5.1. The app targets general arm64 and macOS 14+. Other M-series devices and older macOS versions were not physically tested.
 
-## Build and launch
+## Build and packaging
 
-- Optimized release build completed successfully with no compiler warnings.
-- Built a native `.app` bundle and verified its ad-hoc code signature.
-- Installed into Applications and launched successfully; left running on Processes with Normal refresh.
-- Pinned the installed application to the Dock, preserving existing pinned applications.
-- Verified all seven ICNS representations contain the corresponding original Windows PNG bytes, unchanged.
+- Optimized Rust release built successfully; primary build/test scripts and GitHub Actions now use Rust.
+- Native AppKit UI and a small C system bridge. `otool -L` shows no Swift runtime or web renderer in the executable.
+- Mach-O arm64, minimum OS 14.0; installed in Applications with a valid ad-hoc code signature.
+- The existing Dock pin points to the installed app. Icon verification passed for all nine source representations; seven ICNS chunks preserve the original embedded PNG bytes.
+- Not Developer ID signed or notarized.
 
-## Automated checks
+## Automated and manual coverage
 
-- **32 core tests passed:** CPU calculations, native Mach clock-unit conversion, live process sampling, restricted-process identity fallback, memory formulas, delta resets, hierarchy grouping, cycle handling, sorting, filtering, refresh state, protected-process policy, stable process identity, launchd output parsing, history accumulation, logical-processor tick deltas, 32-bit counter wrap, native processor count, per-core baseline resets, legacy/unified power-profile parsing, invalid profile rejection, source-scoped writes, and restoration of High Power mode.
-- **67 AppKit integration checks passed:** all eight screens, all five performance resources, sidebar collapse/expand, live sampling, search by PID, filtering, ascending/descending sorting, selection, inspector, context menu, protected self-process, app and user expansion, service inventory, units, rolling graph history, pause, resume, editable search, group action membership/protection, per-core graph switching, per-core kernel series, Windows maximize/restore, hidden traffic lights, caption-button order, real power-profile loading, system Low Power state binding, the Efficiency action binding, both sort indicator directions for CPU, Memory, Disk, and Network, the Services search text layout, custom space-reserving scrollbars, and vertical scrolling.
-- UI integration runs inside the real application and exercises its controls and model state; it is not an external XCUITest suite.
+24 Rust tests passed: native ABI layout, live sampling, counter deltas/wrap/reset, idle versus unavailable cores, process grouping/cycles, identity protection, filtering, bounded/observed history, power-profile parsing and validation, service command timeout, column identities, sorting, navigation, scrolling bounds, and disposable process termination.
 
-## Manual checks
+The running Rust app was inspected across Processes, Performance, App history, Startup apps, Users, Details, Services and Settings. Checks included live data, CPU overall/logical views, graph context menus and summary mode, memory composition, resource selection, both directions of CPU/Memory/Disk/Network sorting, search/clear/no-results, service search alignment, navigation collapse, Settings scrolling through refresh, keyboard routes and dialogs. AX command children were exposed and used during verification; this is not a complete VoiceOver audit.
 
-Inspected Processes, Performance, App History, Startup Apps, Users, Details, Services, and Settings in the running application. Verified live metrics and performance graphs, search, column sorting, contextual menus, and responsive navigation.
+A disposable `TaskManagerTestWorker` was selected by PID in the final Rust interface, ended using its confirmation dialog, and independently verified absent afterward. Existing user applications were not terminated. Generation-tagged inspector results prevent a previous asynchronous response from populating a later Properties dialog.
 
-Used disposable test-worker processes to verify the complete action flow: End Task confirmation and SIGTERM termination; lower-priority confirmation and nice value changing from 0 to 5; Force Quit confirmation and SIGKILL termination. Existing user applications were not terminated. Actual startup-item changes and launch-at-login approval were not exercised against the user's settings.
+The [component audit](COMPONENT_AUDIT.md) records remaining differences and untested mutations. The old Swift suite's 32 core tests and 67 integration checks are historical baseline evidence, not Rust test results.
 
-Verified both directions of the real Efficiency mode action on the M5 Pro test Mac. After native administrator authorization, the AC profile changed from High Power (`powermode 2`) to Low Power (`powermode 1`), and the button reported Low Power Mode on through ProcessInfo. Turning it off restored High Power (`powermode 2`) after authorization, and the button returned to Off. The battery profile remained Automatic (`powermode 0`) throughout. The Mac was left in its original power configuration.
+## Responsiveness
 
-## Resource-use sample
+A final sample of **38 interactions** at a 1120×720-point window, Normal refresh, and approximately 1,200 running processes produced:
 
-With more than 1,100 processes and Normal (two-second) refresh, a 60-second observation of the original release build (before the Windows chrome/per-core update) averaged **9.40% of one CPU core**, approximately **0.52% of total 18-core capacity**. RSS ranged from **354.4 to 367.0 MiB**, ending at 357.7 MiB after interface inspection. This is a short observational sample, not a long-duration leak test or a guarantee on other Macs. Graph and history storage and the icon cache have explicit bounds.
+| App-side action + drawing | Count | Median | 95th percentile | Maximum |
+|---|---:|---:|---:|---:|
+| All sampled interactions | 38 | 2.71 ms | 5.84 ms | 7.20 ms |
+| Page navigation | 17 | 2.09 ms | 7.20 ms | 7.20 ms |
+| Resource-column sorting | 8 | 3.30 ms | 5.84 ms | 5.84 ms |
+| Dialogs, navigation collapse and resource selection | 13 | 2.52 ms | 4.83 ms | 4.83 ms |
 
-## Permissions and limits
+**All 38 sampled actions were below 8 ms.** The first Run dialog measured 4.83 ms after pre-initializing AppKit's field editor; before that change it measured 17.73 ms. Earlier Details navigation reached 12.39 ms before hidden-column and visible-cell formatting optimizations. These earlier outliers motivated the final changes; they are not represented as passing results.
 
-Monitoring does not require administrator privileges, root, Full Disk Access, or SIP changes. Explicit Low Power Mode changes use the macOS administrator authorization dialog; no persistent privileged helper is installed. Protected-process details display unavailable values. Modern third-party login items are managed through the linked System Settings page; eligible current-user LaunchAgents have guarded enable/disable controls.
+[Raw final observations and context](benchmarks/final-interactions.json) are included. Percentiles use the nearest-rank method. Video encoding and app-view recording had finished before this sample; ordinary background applications remained running.
 
-GPU utilization/engines, per-process network traffic, Energy Impact, dynamic CPU frequency, disk active time, and other unavailable metrics are explicitly identified in the interface. Memory is macOS RSS and VM accounting, not Windows private working set. The [README](README.md) documents the APIs, Windows-to-macOS mappings, calculation formulas, and remaining limitations.
+The timed `paint:` observations include action handling and synchronous drawing submission, but exclude input event delivery, compositor scheduling and physical display scanout. They are not input-to-photon measurements. A finite sample cannot guarantee every click stays below 8 ms on every workload or display. Native window management and administrator authorization also involve the operating system.
 
-The Windows icon source pixels are preserved exactly. The app now draws Windows-style window controls. Font rasterization, the macOS menu bar/file pickers, and underlying OS behavior still differ; see PARITY.md. The current release is not certified pixel-identical to Windows. The bundle is locally signed, not Developer ID signed or notarized for public binary distribution.
+Rendering is virtualized to visible rows. Numeric cell formatting is deferred until display, fonts/drawing attributes are cached, and icons are loaded outside the click path. Sampling, service inventory, inspector commands and power changes run off the UI thread. Recording was disabled for interaction measurements.
 
-## Per-core activity investigation
+## Resource use
 
-A standalone reader of `host_processor_info(PROCESSOR_CPU_LOAD_INFO)` reproduced the low readings for CPUs 6–11: 0–0.5% busy over four seconds of the normal workload, with idle tick counters advancing normally. During a bounded four-second, 18-thread CPU workload, each of CPUs 6–11 reached approximately 99.8% busy and every other core reached 99.8–100%. The workers exited after the sample. This confirms the low graphs reflect actual scheduler activity, not missing cores or a stuck graph. CPU index alone is not used to infer a core's performance class. Per-core tooltips report both utilization and idle percentage.
+A 20-second Processes-page observation with Normal refresh and approximately 1,150 processes averaged **3.40% of one CPU core** and **171.6 MiB RSS** on a Rust release candidate. A separately measured Swift baseline averaged **8.69% of one core** and **314.8 MiB RSS**. Background workload and exact execution times differed, so these are exploratory observations, not a controlled speedup claim or a guarantee. The final release adds further deferred numeric formatting; this resource observation predates that last optimization.
+
+## Per-core and power verification
+
+An independent Mach `host_processor_info(PROCESSOR_CPU_LOAD_INFO)` reader reproduced the low CPU 6–11 values while their idle tick counters advanced. During a bounded four-second 18-thread workload, every core reached approximately 99.8–100% busy. Low graphs reflect scheduler activity, not missing cores; no core class is inferred from an index.
+
+The preceding Swift implementation completed an administrator-authorized AC High Power → Low Power → High Power round trip, leaving Battery Automatic unchanged. The Rust controller implements the same source-scoped `pmset` mapping with validation/readback; parsing and restoration logic are tested, and the Rust confirmation/cancel path was checked. The privileged write was not repeated after the rewrite. Final readback remained **AC powermode 2; Battery powermode 0**. No persistent privileged helper, root monitoring, SIP change, or Full Disk Access requirement was introduced.
+
+## Visual and functional limits
+
+The original app icon pixels are verified. Complete pixel identity of the whole application is not certified. Font rasterization, some custom glyphs, native text editing/authorization and OS behavior differ. GPU utilization, per-process networking, Windows affinity/dumps and other unavailable data are not invented. See [PARITY.md](PARITY.md).
+
+The promotional video contains real app-view frames, edited and composited over Apple's default macOS Tahoe wallpaper. Its opening animation and 60-fps composition are presentation, not a latency or frame-rate benchmark.
