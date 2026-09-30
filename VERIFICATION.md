@@ -22,7 +22,7 @@ Inspected Processes, Performance, App History, Startup Apps, Users, Details, Ser
 
 Used disposable test-worker processes to verify the complete action flow: End Task confirmation and SIGTERM termination; lower-priority confirmation and nice value changing from 0 to 5; Force Quit confirmation and SIGKILL termination. Existing user applications were not terminated. Actual startup-item changes and launch-at-login approval were not exercised against the user's settings.
 
-Verified the real Efficiency mode action on the M5 Pro test Mac: after native administrator authorization, the AC profile changed from High Power (`powermode 2`) to Low Power (`powermode 1`), and the button reported Low Power Mode on through ProcessInfo. The battery profile remained Automatic (`powermode 0`). The off confirmation correctly offered to restore High Power rather than discarding the prior setting.
+Verified both directions of the real Efficiency mode action on the M5 Pro test Mac. After native administrator authorization, the AC profile changed from High Power (`powermode 2`) to Low Power (`powermode 1`), and the button reported Low Power Mode on through ProcessInfo. Turning it off restored High Power (`powermode 2`) after authorization, and the button returned to Off. The battery profile remained Automatic (`powermode 0`) throughout. The Mac was left in its original power configuration.
 
 ## Resource-use sample
 
