@@ -1,5 +1,4 @@
 import AppKit
-import IOKit.ps
 import Metal
 import TaskCore
 
@@ -9,30 +8,12 @@ func hardwareClassName(_ key: String, fallback: String) -> String {
   return sysctlbyname(key, &buffer, &count, nil, 0) == 0 ? String(cString: buffer) : fallback
 }
 
-func batteryLevel() -> (Double?, String) {
-  guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-    let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef]
-  else { return (nil, "No battery data") }
-  for source in sources {
-    if let d = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
-      let current = d[kIOPSCurrentCapacityKey] as? Double,
-      let maximum = d[kIOPSMaxCapacityKey] as? Double, maximum > 0
-    {
-      let state = d[kIOPSPowerSourceStateKey] as? String ?? "Unknown"
-      return (current / maximum * 100, state)
-    }
-  }
-  return (nil, "No internal battery")
-}
 enum Resource: String, CaseIterable {
   case cpu = "CPU"
   case memory = "Memory"
   case disk = "Disk"
   case network = "Network"
   case gpu = "GPU"
-  case battery = "Battery / Energy"
-  case swap = "Swap"
-  case thermal = "Thermal"
   var color: NSColor {
     switch self {
     case .cpu: return accent
@@ -40,13 +21,21 @@ enum Resource: String, CaseIterable {
     case .disk: return .systemGreen
     case .network: return .systemOrange
     case .gpu: return .systemTeal
-    case .battery: return .systemGreen
-    case .swap: return .systemIndigo
-    case .thermal: return .systemPink
     }
   }
 }
 final class GraphView: NSView {
+  var contextProvider: (() -> NSMenu?)?
+  var doubleClick: (() -> Void)?
+  override func menu(for event: NSEvent) -> NSMenu? { contextProvider?() }
+  override func rightMouseDown(with event: NSEvent) {
+    if let menu = contextProvider?() {
+      WindowsMenu.show(menu, at: convert(event.locationInWindow, from: nil), in: self)
+    }
+  }
+  override func mouseDown(with event: NSEvent) {
+    if event.clickCount == 2 { doubleClick?() } else { super.mouseDown(with: event) }
+  }
   var points: [(Double, Double)] = []
   var second: [(Double, Double)] = []
   var maxValue: Double = 100
@@ -163,6 +152,12 @@ final class PerformanceView: NSView {
   var selected: Resource = .cpu
   var cards: [Resource: ResourceCard] = [:]
   let graph = GraphView()
+  let graphHost = NSView()
+  let coreGrid = LogicalCPUGrid()
+  var logicalMode = UserDefaults.standard.bool(forKey: "cpuLogicalGraphs")
+  var kernelTimes = UserDefaults.standard.bool(forKey: "cpuKernelTimes")
+  var summaryMode = false
+  var detailSections: [NSView] = []
   let heading = label("CPU", 28, .semibold)
   let hardware = label("", 13, .regular, .secondaryLabelColor)
   let upper = label("% Utilization", 11, .regular, .secondaryLabelColor)
@@ -177,10 +172,6 @@ final class PerformanceView: NSView {
   var history: [SystemSnapshot] = []
   var processes: [ProcessRecord] = []
   let gpu = MTLCreateSystemDefaultDevice()
-  var thermalSamples: [(Double, Double)] = []
-  var batterySamples: [(Double, Double)] = []
-  var lastTimestamp: Date?
-  var batteryState = ""
   override init(frame: NSRect) {
     super.init(frame: frame)
     let cardStack = stack([], .vertical, 2)
@@ -200,6 +191,8 @@ final class PerformanceView: NSView {
       card.heightAnchor.constraint(equalToConstant: 77).isActive = true
     }
     let cardScroll = NSScrollView()
+    cardScroll.contentView = FlippedClipView()
+    cardScroll.drawsBackground = false
     cardScroll.documentView = cardStack
     cardScroll.hasVerticalScroller = true
     cardScroll.autohidesScrollers = true
@@ -215,22 +208,30 @@ final class PerformanceView: NSView {
     let gs = NSView()
     gs.setContentHuggingPriority(.defaultLow, for: .horizontal)
     let graphHeader = stack([upper, gs, limit])
-    graph.heightAnchor.constraint(greaterThanOrEqualToConstant: 215).isActive = true
-    graph.heightAnchor.constraint(lessThanOrEqualToConstant: 370).isActive = true
-    graph.setContentHuggingPriority(.defaultLow, for: .vertical)
+    graphHost.heightAnchor.constraint(greaterThanOrEqualToConstant: 215).isActive = true
+    // The graph consumes the available height, including summary mode.
+    graphHost.setContentHuggingPriority(.defaultLow, for: .vertical)
     stats.orientation = .vertical
     stats.alignment = .leading
     stats.spacing = 16
+    note.isHidden = true
     note.maximumNumberOfLines = 4
     note.lineBreakMode = .byWordWrapping
     let timeSpacer = NSView()
     timeSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
     let timeRow = stack([timeline, timeSpacer, nowLabel])
-    let detail = stack([head, graphHeader, graph, timeRow, stats, note], .vertical, 12)
+    let detail = stack([head, graphHeader, graphHost, timeRow, stats, note], .vertical, 12)
     detail.edgeInsets = NSEdgeInsets(top: 26, left: 28, bottom: 24, right: 28)
-    for v in [head, graphHeader, graph, timeRow, stats, note] {
+    for v in [head, graphHeader, graphHost, timeRow, stats, note] {
       v.widthAnchor.constraint(equalTo: detail.widthAnchor, constant: -56).isActive = true
     }
+    pin(graph, graphHost)
+    pin(coreGrid, graphHost)
+    coreGrid.isHidden = true
+    graph.contextProvider = { [weak self] in self?.graphMenu() }
+    coreGrid.contextProvider = { [weak self] in self?.graphMenu() }
+    graph.doubleClick = { [weak self] in self?.toggleSummary() }
+    detailSections = [head, graphHeader, timeRow, stats, note]
     let all = stack([cardScroll, detail], .horizontal, 0)
     all.alignment = .top
     pin(all, self)
@@ -247,29 +248,87 @@ final class PerformanceView: NSView {
     current = system
     history = samples
     self.processes = processes
-    captureEnvironment(system)
     render()
   }
-  func captureEnvironment(_ system: SystemSnapshot) {
-    if lastTimestamp != system.timestamp {
-      lastTimestamp = system.timestamp
-      let now = system.timestamp.timeIntervalSince1970
-      thermalSamples.append((now, Double(ProcessInfo.processInfo.thermalState.rawValue)))
-      let battery = batteryLevel()
-      batteryState = battery.1
-      if let b = battery.0 { batterySamples.append((now, b)) }
-      let seconds = historySeconds
-      thermalSamples.removeAll { $0.0 < now - seconds }
-      batterySamples.removeAll { $0.0 < now - seconds }
+  func graphMenu() -> NSMenu {
+    let menu = NSMenu()
+    if selected == .cpu {
+      let item = NSMenuItem(title: "Change graph to", action: nil, keyEquivalent: "")
+      let choices = NSMenu()
+      for (title, tag) in [("Overall utilization", 0), ("Logical processors", 1)] {
+        let choice = NSMenuItem(title: title, action: #selector(changeGraph(_:)), keyEquivalent: "")
+        choice.tag = tag
+        choice.target = self
+        choice.state = (logicalMode == (tag == 1)) ? .on : .off
+        choices.addItem(choice)
+      }
+      let numa = NSMenuItem(title: "NUMA nodes", action: nil, keyEquivalent: "")
+      numa.isEnabled = false
+      choices.autoenablesItems = false
+      choices.addItem(numa)
+      item.submenu = choices
+      menu.addItem(item)
+      let kernel = NSMenuItem(
+        title: "Show kernel times", action: #selector(toggleKernel), keyEquivalent: "")
+      kernel.target = self
+      kernel.state = kernelTimes ? .on : .off
+      menu.addItem(kernel)
+      menu.addItem(.separator())
     }
+    let summary = NSMenuItem(
+      title: "Graph summary view", action: #selector(toggleSummary), keyEquivalent: "")
+    summary.target = self
+    summary.state = summaryMode ? .on : .off
+    menu.addItem(summary)
+    let view = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+    let resources = NSMenu()
+    resources.autoenablesItems = false
+    for (index, resource) in Resource.allCases.enumerated() {
+      let item = NSMenuItem(
+        title: resource.rawValue, action: #selector(selectResourceMenu(_:)), keyEquivalent: "")
+      item.target = self
+      item.tag = index
+      item.state = selected == resource ? .on : .off
+      resources.addItem(item)
+    }
+    view.submenu = resources
+    menu.addItem(view)
+    menu.addItem(.separator())
+    let copy = NSMenuItem(title: "Copy", action: #selector(copyPerformance), keyEquivalent: "c")
+    copy.target = self
+    menu.addItem(copy)
+    return menu
+  }
+  @objc func selectResourceMenu(_ item: NSMenuItem) {
+    selected = Resource.allCases[item.tag]
+    render()
+  }
+  @objc func changeGraph(_ item: NSMenuItem) {
+    logicalMode = item.tag == 1
+    UserDefaults.standard.set(logicalMode, forKey: "cpuLogicalGraphs")
+    render()
+  }
+  @objc func toggleKernel() {
+    kernelTimes.toggle()
+    UserDefaults.standard.set(kernelTimes, forKey: "cpuKernelTimes")
+    render()
+  }
+  @objc func toggleSummary() {
+    summaryMode.toggle()
+    for view in detailSections { view.isHidden = summaryMode || view === note }
+  }
+  @objc func copyPerformance() {
+    let lines =
+      [heading.stringValue, hardware.stringValue]
+      + zip(statKeys, statValues).map { "\($0.0)\t\($0.1.stringValue)" }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
   }
   var historySeconds: Double {
     let value = UserDefaults.standard.double(forKey: "graphSeconds")
     return value > 0 ? value : 60
   }
   func series(_ r: Resource) -> [(Double, Double)] {
-    if r == .thermal { return thermalSamples }
-    if r == .battery { return batterySamples }
     return history.map { s in
       let value: Double
       switch r {
@@ -277,7 +336,6 @@ final class PerformanceView: NSView {
       case .memory: value = s.memoryPercent
       case .disk: value = s.read
       case .network: value = s.received
-      case .swap: value = Double(s.raw.swap_used)
       default: value = 0
       }
       return (s.timestamp.timeIntervalSince1970, value)
@@ -286,18 +344,15 @@ final class PerformanceView: NSView {
   func render() {
     let s = current
     let raw = s.raw
-    let battery = batterySamples.last?.1
-    let thermal = ["Nominal", "Fair", "Serious", "Critical"][
-      min(3, ProcessInfo.processInfo.thermalState.rawValue)]
     for r in Resource.allCases {
       let c = cards[r]!
       c.selected = selected == r
       c.graph.points = series(r)
       c.graph.seconds = historySeconds
-      c.graph.unavailable = r == .gpu || (r == .battery && battery == nil) ? "Unavailable" : nil
+      c.graph.unavailable = r == .gpu ? "Unavailable" : nil
       c.graph.maxValue =
-        [Resource.disk, .network, .swap].contains(r)
-        ? max(1, c.graph.points.map(\.1).max() ?? 1) : (r == .thermal ? 3 : 100)
+        [Resource.disk, .network].contains(r)
+        ? max(1, c.graph.points.map(\.1).max() ?? 1) : 100
       switch r {
       case .cpu: c.detailLabel.stringValue = String(format: "%.1f%%", s.cpu)
       case .memory:
@@ -306,11 +361,6 @@ final class PerformanceView: NSView {
       case .disk: c.detailLabel.stringValue = bytes(s.read + s.write) + "/s"
       case .network: c.detailLabel.stringValue = bytes(s.received + s.sent) + "/s"
       case .gpu: c.detailLabel.stringValue = gpu == nil ? "Not detected" : "Utilization unavailable"
-      case .battery:
-        c.detailLabel.stringValue =
-          battery.map { String(format: "%.0f%%", $0) } ?? "AC power / no battery"
-      case .swap: c.detailLabel.stringValue = bytes(Double(raw.swap_used))
-      case .thermal: c.detailLabel.stringValue = thermal
       }
       c.graph.needsDisplay = true
     }
@@ -324,6 +374,22 @@ final class PerformanceView: NSView {
     graph.seconds = historySeconds
     graph.maxValue = 100
     graph.unavailable = nil
+    let showCores = selected == .cpu && logicalMode
+    graph.isHidden = showCores
+    coreGrid.isHidden = !showCores
+    if showCores {
+      coreGrid.update(
+        history: history, count: max(Int(raw.logical), s.logicalCPUs.count),
+        seconds: historySeconds, kernel: kernelTimes)
+      upper.stringValue = "% Utilization over \(Int(historySeconds)) seconds"
+    }
+    if selected == .cpu && kernelTimes {
+      graph.second = history.compactMap { sample in
+        let values = sample.logicalCPUs.compactMap { $0?.kernel }
+        guard !values.isEmpty else { return nil }
+        return (sample.timestamp.timeIntervalSince1970, values.reduce(0, +) / Double(values.count))
+      }
+    }
     timeline.stringValue = "\(Int(historySeconds)) seconds"
     note.stringValue = ""
     var pairs: [(String, String)] = []
@@ -331,18 +397,27 @@ final class PerformanceView: NSView {
     case .cpu:
       hardware.stringValue = cString(raw.cpu_brand)
       pairs = [
-        ("Utilization", String(format: "%.1f%%", s.cpu)), ("Processes", "\(processes.count)"),
+        ("Utilization", String(format: "%.0f%%", s.cpu)),
+        ("Speed", "—"),
+        ("Processes", "\(processes.count)"),
         ("Threads", "\(processes.reduce(0){$0+Int($1.threads)})"),
-        ("Logical processors", "\(raw.logical)"),
+        ("Handles", "—"),
         (
-          "Core classes",
-          "\(hardwareClassName("hw.perflevel0.name", fallback: "Class 0")) \(raw.performance) / \(hardwareClassName("hw.perflevel1.name", fallback: "Class 1")) \(raw.efficiency)"
+          "Up time",
+          "\(Int(raw.uptime)/86400):" + duration(raw.uptime.truncatingRemainder(dividingBy: 86400))
         ),
-        ("Up time", duration(raw.uptime)),
+        ("Base speed:", "—"),
+        ("Cores:", "\(raw.physical)"),
+        ("Logical processors:", "\(raw.logical)"),
         (
-          "Load average (1 / 5 / 15)",
+          "\(hardwareClassName("hw.perflevel0.name",fallback:"Performance")):", "\(raw.performance)"
+        ),
+        ("\(hardwareClassName("hw.perflevel1.name",fallback:"Efficiency")):", "\(raw.efficiency)"),
+        (
+          "Load (1 / 5 / 15):",
           String(format: "%.2f / %.2f / %.2f", raw.load1, raw.load5, raw.load15)
-        ), ("Current clock", "Not exposed"), ("Architecture", "Apple Silicon"),
+        ),
+        ("Architecture:", "Apple Silicon"),
       ]
       note.stringValue =
         "CPU percentages use total machine capacity (0–100%), matching Task Manager. Load average counts runnable and waiting tasks. Dynamic clock telemetry is not publicly exposed."
@@ -412,49 +487,9 @@ final class PerformanceView: NSView {
       ]
       note.stringValue =
         "The working-set value is Metal's recommended limit, not current GPU memory usage. No private IOAccelerator properties or elevated powermetrics sampling are used."
-    case .battery:
-      hardware.stringValue = batteryState
-      upper.stringValue = "Battery charge"
-      if battery == nil {
-        graph.unavailable =
-          "No internal battery was reported by IOKit.\nThis Mac may be connected to AC power without a battery."
-      }
-      pairs = [
-        ("Charge", battery.map { String(format: "%.0f%%", $0) } ?? "Not available"),
-        ("Power source", batteryState), ("Thermal state", thermal),
-        ("Low power mode", ProcessInfo.processInfo.isLowPowerModeEnabled ? "Enabled" : "Disabled"),
-        ("Energy impact", "Not exposed"), ("Package power", "Requires elevated tools"),
-      ]
-      note.stringValue =
-        "Battery charge comes from IOKit power sources. Energy Impact is an Apple-specific metric and is not approximated from CPU usage."
-    case .swap:
-      hardware.stringValue = "Virtual memory"
-      upper.stringValue = "Swap in use"
-      graph.maxValue = max(1024, Double(raw.swap_total))
-      limit.stringValue = bytes(graph.maxValue)
-      pairs = [
-        ("Used", bytes(Double(raw.swap_used))), ("Allocated", bytes(Double(raw.swap_total))),
-        (
-          "Free in allocation",
-          bytes(Double(raw.swap_total >= raw.swap_used ? raw.swap_total - raw.swap_used : 0))
-        ), ("Compressed memory", bytes(Double(raw.compressed))),
-        ("Physical RAM", bytes(Double(raw.ram))), ("Managed by", "macOS dynamic pager"),
-      ]
-      note.stringValue =
-        "Swap allocation can grow and shrink as macOS manages virtual memory. The graph scale follows the current allocation."
-    case .thermal:
-      hardware.stringValue = "System thermal pressure"
-      upper.stringValue = "Nominal → Fair → Serious → Critical"
-      limit.stringValue = "Critical"
-      graph.maxValue = 3
-      pairs = [
-        ("Thermal state", thermal),
-        ("Low power mode", ProcessInfo.processInfo.isLowPowerModeEnabled ? "Enabled" : "Disabled"),
-        ("Temperature", "Not exposed"),
-      ]
-      note.stringValue =
-        "Thermal state is a discrete system pressure indicator, not a temperature reading. Values come from ProcessInfo."
     }
+    heading.toolTip = note.stringValue
+    graph.toolTip = note.stringValue
     if statKeys == pairs.map({ $0.0 }) {
       for (index, pair) in pairs.enumerated() { statValues[index].stringValue = pair.1 }
     } else {
@@ -464,25 +499,123 @@ final class PerformanceView: NSView {
         stats.removeArrangedSubview($0)
         $0.removeFromSuperview()
       }
-      for start in stride(from: 0, to: pairs.count, by: 3) {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .top
-        row.distribution = .fillEqually
-        row.spacing = 20
-        for pair in pairs[start..<min(start + 3, pairs.count)] {
-          let value = label(pair.1, 16, .medium)
-          statValues.append(value)
-          value.maximumNumberOfLines = 2
-          value.lineBreakMode = .byTruncatingMiddle
-          let cell = stack(
-            [label(pair.0, 11, .regular, .secondaryLabelColor), value], .vertical, 4)
-          row.addArrangedSubview(cell)
+      statValues = pairs.map { label($0.1, selected == .cpu ? 12 : 16) }
+      if selected == .cpu {
+        let live = stack([], .vertical, 12)
+        for indices in [[0, 1], [2, 3, 4], [5]] {
+          let cells = indices.map { index -> NSView in
+            statValues[index].font = winFont(20)
+            return stack(
+              [label(pairs[index].0, 11, .regular, .secondaryLabelColor), statValues[index]],
+              .vertical, 2)
+          }
+          let row = stack(cells, .horizontal, 20)
+          live.addArrangedSubview(row)
         }
+        let metadata = stack([], .vertical, 5)
+        for index in 6..<pairs.count {
+          let title = label(pairs[index].0, 11, .regular, .secondaryLabelColor)
+          title.widthAnchor.constraint(equalToConstant: 118).isActive = true
+          metadata.addArrangedSubview(stack([title, statValues[index]], .horizontal, 6))
+        }
+        let row = stack([live, metadata], .horizontal, 28)
+        row.alignment = .top
         stats.addArrangedSubview(row)
-        row.widthAnchor.constraint(equalTo: stats.widthAnchor).isActive = true
+        row.widthAnchor.constraint(lessThanOrEqualTo: stats.widthAnchor).isActive = true
+      } else {
+        for start in stride(from: 0, to: pairs.count, by: 3) {
+          let row = NSStackView()
+          row.orientation = .horizontal
+          row.alignment = .top
+          row.distribution = .fillEqually
+          row.spacing = 20
+          for index in start..<min(start + 3, pairs.count) {
+            let value = statValues[index]
+            value.maximumNumberOfLines = 2
+            value.lineBreakMode = .byTruncatingMiddle
+            row.addArrangedSubview(
+              stack(
+                [label(pairs[index].0, 11, .regular, .secondaryLabelColor), value], .vertical, 4))
+          }
+          stats.addArrangedSubview(row)
+          row.widthAnchor.constraint(equalTo: stats.widthAnchor).isActive = true
+        }
       }
     }
     graph.needsDisplay = true
+  }
+}
+
+final class LogicalCPUGrid: NSView {
+  var graphs: [GraphView] = []
+  var labels: [NSTextField] = []
+  var contextProvider: (() -> NSMenu?)?
+  override var isFlipped: Bool { true }
+  override func menu(for event: NSEvent) -> NSMenu? { contextProvider?() }
+  override func rightMouseDown(with event: NSEvent) {
+    if let menu = contextProvider?() {
+      WindowsMenu.show(menu, at: convert(event.locationInWindow, from: nil), in: self)
+    }
+  }
+  func update(history: [SystemSnapshot], count: Int, seconds: Double, kernel: Bool) {
+    if graphs.count != count {
+      subviews.forEach { $0.removeFromSuperview() }
+      graphs = []
+      labels = []
+      for index in 0..<count {
+        let graph = GraphView()
+        graph.compact = true
+        graph.contextProvider = { [weak self] in self?.contextProvider?() }
+        let title = label("CPU \(index)", 10, .regular, .secondaryLabelColor)
+        graph.addSubview(title)
+        addSubview(graph)
+        graphs.append(graph)
+        labels.append(title)
+      }
+    }
+    for index in graphs.indices {
+      let graph = graphs[index]
+      graph.seconds = seconds
+      graph.points = history.compactMap { sample in
+        guard sample.logicalCPUs.indices.contains(index), let value = sample.logicalCPUs[index]
+        else { return nil }
+        return (sample.timestamp.timeIntervalSince1970, value.total)
+      }
+      graph.second =
+        kernel
+        ? history.compactMap { sample in
+          guard sample.logicalCPUs.indices.contains(index), let value = sample.logicalCPUs[index]
+          else { return nil }
+          return (sample.timestamp.timeIntervalSince1970, value.kernel)
+        } : []
+      graph.toolTip =
+        "CPU \(index) • "
+        + (graph.points.last.map { String(format: "%.1f%%", $0.1) } ?? "Collecting…")
+      graph.setAccessibilityLabel(graph.toolTip)
+      graph.needsDisplay = true
+    }
+    needsLayout = true
+  }
+  override func layout() {
+    super.layout()
+    guard !graphs.isEmpty else { return }
+    let aspect = Double(max(1, bounds.width) / max(1, bounds.height))
+    let divisors = (1...graphs.count).filter { graphs.count % $0 == 0 }
+    let columns =
+      divisors.min { a, b in
+        abs(log(aspect * Double(graphs.count) / Double(a * a) / 1.4))
+          < abs(log(aspect * Double(graphs.count) / Double(b * b) / 1.4))
+      } ?? 1
+    let rows = Int(ceil(Double(graphs.count) / Double(columns)))
+    let gap: CGFloat = 6
+    let width = max(0, (bounds.width - CGFloat(columns - 1) * gap) / CGFloat(columns))
+    let height = max(0, (bounds.height - CGFloat(rows - 1) * gap) / CGFloat(rows))
+    for i in graphs.indices {
+      graphs[i].frame = NSRect(
+        x: CGFloat(i % columns) * (width + gap), y: CGFloat(i / columns) * (height + gap),
+        width: width, height: height)
+      labels[i].frame = NSRect(
+        x: 5, y: 3, width: max(0, width - 10), height: min(14, max(0, height - 3)))
+    }
   }
 }

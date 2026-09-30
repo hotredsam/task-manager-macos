@@ -1,32 +1,60 @@
-[
-  {
-    "file": "TaskManager-256.png",
-    "source": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Windows_11_TASKMGR.png",
-    "sha256": "13ec70c325c38d2e750704b9e813a20c5f8fc7ef11775aa1281179fa4dca5e37",
-    "size": 256
-  },
-  {
-    "file": "TaskManager-64.png",
-    "source": "https://upload.wikimedia.org/wikipedia/commons/archive/a/ac/20241225151853!Windows_11_TASKMGR.png",
-    "sha256": "df1e905f0e5ec8d385f747767b0653cc2ebfb0da8cadf5eaec0abf26046aa285",
-    "size": 64
-  },
-  {
-    "file": "TaskManager-48.png",
-    "source": "https://upload.wikimedia.org/wikipedia/commons/archive/a/ac/20241225151831!Windows_11_TASKMGR.png",
-    "sha256": "828997c7ba7ac4d89f8d95889b096e7b5838e4437c079addfba2550d2a5d8431",
-    "size": 48
-  },
-  {
-    "file": "TaskManager-32.png",
-    "source": "https://upload.wikimedia.org/wikipedia/commons/archive/a/ac/20241225151742!Windows_11_TASKMGR.png",
-    "sha256": "4f5b70a2a8fdec8eb59acee994ced6fac3c34bb0d1535e9e8a162f6d43b63ebf",
-    "size": 32
-  },
-  {
-    "file": "TaskManager-16.png",
-    "source": "https://upload.wikimedia.org/wikipedia/commons/archive/a/ac/20241225151706!Windows_11_TASKMGR.png",
-    "sha256": "c6075b3c47f6d41630113e25ee7a6ef16c24a0ddcf47290d822ddd7ba71e54a4",
-    "size": 16
-  }
-]
+{
+  "source": "https://github.com/HaydenReeve/WindowsIcons/blob/main/Icons/applications/taskmanager.ico",
+  "ico_sha256": "b0bc0e1912516fa18451ec0872dc811451491acfd91419d5be9e98b85fade010",
+  "representations": [
+    {
+      "file": "TaskManager-16.png",
+      "size": 16,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "6ea06c672fd1fa8b0d23032f49f3d4527a10dcadec9185b7e7f6eb0525870150"
+    },
+    {
+      "file": "TaskManager-24.png",
+      "size": 24,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "cf3760659c603bdb08de67398103699fb9ee688361ebf304b6e28a90d2532abc"
+    },
+    {
+      "file": "TaskManager-32.png",
+      "size": 32,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "30cc8cf1f94600b276984c157fd6463f0eae8fa7b630a1dba47e9275806ae121"
+    },
+    {
+      "file": "TaskManager-48.png",
+      "size": 48,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "e6fb028a6d0df7bcb2e349b1654aa8b94b7b6eabbf254311dc795c41b625945e"
+    },
+    {
+      "file": "TaskManager-64.png",
+      "size": 64,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "16b30bc4c46f9b676146ddff0fe361b0bd2ae618bb8752ad39b5902d9539a1f6"
+    },
+    {
+      "file": "TaskManager-96.png",
+      "size": 96,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "3c90feee87fa6bcfef27b38b8278c10d4dc6f4366e1f56f200d0f4c18e3ee570"
+    },
+    {
+      "file": "TaskManager-128.png",
+      "size": 128,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "72788748644490d9a7914590e65881c517e00bc3570d1822e392cebe2bc86336"
+    },
+    {
+      "file": "TaskManager-192.png",
+      "size": 192,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "c8bb1c8d006cab752d2733d4e5d3131e0b2fb00b6ec945e97b09a16a2158ac0f"
+    },
+    {
+      "file": "TaskManager-256.png",
+      "size": 256,
+      "source": "TaskManager-Windows.ico",
+      "sha256": "02962025a28f9ad16b9c837d7bc98eecd8f6db9d94fea0a0b0b13731a5b82d7e"
+    }
+  ]
+}

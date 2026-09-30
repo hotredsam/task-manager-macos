@@ -17,6 +17,37 @@ struct TaskCoreTests {
     p.path = "/Applications/Test.app/Contents/MacOS/Test"
     return p
   }
+  @Test func testLogicalCPUUtilization() {
+    let before = CPUCounter(user: 100, system: 100, idle: 100, nice: 0)
+    let after = CPUCounter(user: 130, system: 110, idle: 160, nice: 0)
+    let value = after.utilization(since: before)
+    #expect(value?.total == 40)
+    #expect(value?.kernel == 10)
+    #expect(before.utilization(since: before) == nil)
+  }
+  @Test func testLogicalCPUCounterWrap() {
+    let before = CPUCounter(user: UInt32.max - 4, system: 0, idle: 10, nice: 0)
+    let after = CPUCounter(user: 5, system: 0, idle: 20, nice: 0)
+    #expect(after.utilization(since: before)?.total == 50)
+  }
+  @Test func testNativeLogicalCPUCount() {
+    var pointer: UnsafeMutablePointer<TMCPU>?
+    let count = tm_cpu_load(&pointer)
+    defer { tm_free(pointer) }
+    #expect(count == ProcessInfo.processInfo.processorCount)
+    #expect(pointer != nil)
+  }
+  @Test func testLogicalCPUBaselineReset() {
+    let sampler = Sampler()
+    let first = sampler.sample().1
+    #expect(first.logicalCPUs.count == ProcessInfo.processInfo.processorCount)
+    #expect(first.logicalCPUs.allSatisfy { $0 == nil })
+    usleep(120_000)
+    let second = sampler.sample().1
+    #expect(second.logicalCPUs.allSatisfy { $0 != nil && $0!.total >= 0 && $0!.total <= 100 })
+    sampler.resetBaseline()
+    #expect(sampler.sample().1.logicalCPUs.allSatisfy { $0 == nil })
+  }
   @Test func testCPUCalculation() {
     expectEqual(
       Metrics.cpu(now: 3_000_000_000, previous: 1_000_000_000, elapsed: 2, cores: 8), 12.5)

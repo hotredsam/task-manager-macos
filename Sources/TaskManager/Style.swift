@@ -7,7 +7,7 @@ func label(
   _ color: NSColor = .labelColor
 ) -> NSTextField {
   let l = NSTextField(labelWithString: text)
-  l.font = NSFont.systemFont(ofSize: size, weight: weight)
+  l.font = winFont(size, weight)
   l.textColor = color
   l.lineBreakMode = .byTruncatingTail
   l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -16,12 +16,15 @@ func label(
 func button(_ title: String, _ symbol: String? = nil, target: AnyObject?, action: Selector)
   -> NSButton
 {
-  let b = NSButton(title: title, target: target, action: action)
-  b.bezelStyle = .rounded
+  let b = FlatButton(frame: .zero)
+  b.title = title
+  b.target = target
+  b.action = action
+  b.isBordered = false
   b.controlSize = .small
   b.font = NSFont.systemFont(ofSize: 12)
   if let s = symbol {
-    b.image = NSImage(systemSymbolName: s, accessibilityDescription: title)
+    b.image = windowsIcon(s)
     b.imagePosition = .imageLeading
   }
   return b
@@ -89,6 +92,11 @@ final class HeatCell: NSTableCellView {
   let title = label("")
   let icon = NSImageView()
   let disclosure = NSButton()
+  var textInset:CGFloat=8
+  override func layout() {
+    super.layout()
+    title.frame=NSRect(x:textInset,y:5,width:max(0,bounds.width-textInset-10),height:18)
+  }
   var heat: Double = 0 { didSet { needsDisplay = true } }
   override init(frame: NSRect) {
     super.init(frame: frame)
@@ -104,7 +112,7 @@ final class HeatCell: NSTableCellView {
   required init?(coder: NSCoder) { fatalError() }
   override func draw(_ dirtyRect: NSRect) {
     if heat > 0 {
-      accent.withAlphaComponent(min(0.30, 0.045 + heat * 0.22)).setFill()
+      accent.withAlphaComponent(min(0.70, 0.25 + heat * 0.45)).setFill()
       bounds.fill()
     }
     super.draw(dirtyRect)
@@ -116,20 +124,20 @@ final class HeatCell: NSTableCellView {
     title.stringValue = text
     title.font =
       numeric
-      ? NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-      : NSFont.systemFont(ofSize: 12, weight: bold ? .medium : .regular)
+      ? winFont(12)
+      : winFont(12, bold ? .medium : .regular)
     title.alignment = numeric ? .right : .left
     icon.image = image
     icon.isHidden = image == nil
     disclosure.isHidden = expand == nil
     if let expanded = expand {
-      disclosure.image = NSImage(
-        systemSymbolName: expanded ? "chevron.down" : "chevron.right",
-        accessibilityDescription: expanded ? "Collapse group" : "Expand group")
+      disclosure.image = windowsIcon(expanded ? "chevron.down" : "chevron.right")
+      disclosure.setAccessibilityLabel(expanded ? "Collapse group" : "Expand group")
     }
     let left: CGFloat = 8 + indent + (expand == nil ? 0 : 18) + (image == nil ? 0 : 23)
     title.frame = NSRect(x: left, y: 5, width: max(0, bounds.width - left - 10), height: 18)
-    title.autoresizingMask = [.width]
+    textInset=left
+    needsLayout=true
     icon.frame = NSRect(x: 8 + indent + (expand == nil ? 0 : 18), y: 5, width: 17, height: 17)
     disclosure.frame = NSRect(x: 5 + indent, y: 5, width: 17, height: 18)
   }
@@ -140,19 +148,28 @@ final class MetricHeader: NSTableHeaderCell {
     // AppKit reuses the final header cell with an empty title to paint the
     // trailing gutter. Do not repeat its metric in that empty region.
     if summary.isEmpty || stringValue.isEmpty {
-      super.draw(withFrame: cellFrame, in: controlView)
+      winContent.setFill()
+      cellFrame.fill()
+      if !stringValue.isEmpty {
+        (stringValue as NSString).draw(
+          in: NSRect(
+            x: cellFrame.minX + 8, y: cellFrame.maxY - 23, width: cellFrame.width - 20, height: 18),
+          withAttributes: [.font: winFont(12), .foregroundColor: NSColor.labelColor])
+      }
+      NSColor.separatorColor.withAlphaComponent(0.35).setFill()
+      NSRect(x: cellFrame.maxX - 1, y: cellFrame.minY, width: 0.5, height: cellFrame.height).fill()
       return
     }
-    NSColor.controlBackgroundColor.setFill()
+    winContent.setFill()
     cellFrame.fill()
     let p = NSMutableParagraphStyle()
     p.alignment = .right
     let top: [NSAttributedString.Key: Any] = [
-      .font: NSFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold),
+      .font: winFont(16),
       .foregroundColor: NSColor.labelColor, .paragraphStyle: p,
     ]
     let bottom: [NSAttributedString.Key: Any] = [
-      .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
+      .font: winFont(11), .foregroundColor: NSColor.secondaryLabelColor,
       .paragraphStyle: p,
     ]
     (summary as NSString).draw(
@@ -180,6 +197,11 @@ final class ProcessTable: NSTableView {
       return contextProvider?(row)
     }
     return nil
+  }
+  override func rightMouseDown(with event: NSEvent) {
+    if let menu = menu(for: event) {
+      WindowsMenu.show(menu, at: convert(event.locationInWindow, from: nil), in: self)
+    }
   }
   override func keyDown(with event: NSEvent) {
     if event.keyCode == 51 {

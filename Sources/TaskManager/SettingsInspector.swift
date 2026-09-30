@@ -6,86 +6,68 @@ import TaskCore
 
 extension AppController {
   func makeSettings() -> NSView {
-    let panel = stack([], .vertical, 0)
-    panel.edgeInsets = NSEdgeInsets(top: 24, left: 28, bottom: 24, right: 28)
-    func row(_ title: String, _ detail: String, _ control: NSView) {
-      let a = label(title, 13, .medium)
-      let b = label(detail, 11, .regular, .secondaryLabelColor)
-      b.maximumNumberOfLines = 2
-      b.lineBreakMode = .byWordWrapping
-      let text = stack([a, b], .vertical, 4)
-      let spacer = NSView()
-      spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-      let r = stack([text, spacer, control])
-      r.edgeInsets = NSEdgeInsets(top: 12, left: 0, bottom: 12, right: 0)
-      panel.addArrangedSubview(r)
-      r.widthAnchor.constraint(equalTo: panel.widthAnchor, constant: -56).isActive = true
-      panel.addArrangedSubview(rule())
-      panel.arrangedSubviews.last!.widthAnchor.constraint(equalTo: r.widthAnchor).isActive = true
+    let panel = stack([], .vertical, 12)
+    panel.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 32, right: 32)
+    panel.addArrangedSubview(label("Settings", 24, .semibold))
+    func heading(_ text: String) {
+      let l = label(text, 12, .semibold)
+      panel.addArrangedSubview(l)
+      panel.setCustomSpacing(8, after: l)
     }
-    func popup(_ options: [String], _ value: String, _ key: String) -> NSPopUpButton {
-      let p = NSPopUpButton()
+    func popup(_ options: [String], _ value: String, _ key: String) {
+      let p = WindowsPopupButton()
       p.addItems(withTitles: options)
       p.selectItem(withTitle: value)
       p.identifier = NSUserInterfaceItemIdentifier(key)
       p.target = self
       p.action = #selector(settingPopup(_:))
-      p.widthAnchor.constraint(equalToConstant: 180).isActive = true
-      return p
+      p.widthAnchor.constraint(equalToConstant: 155).isActive = true
+      p.heightAnchor.constraint(equalToConstant: 30).isActive = true
+      panel.addArrangedSubview(p)
+      panel.setCustomSpacing(24, after: p)
     }
-    func toggle(_ enabled: Bool, _ key: String) -> NSButton {
-      let b = NSButton(checkboxWithTitle: "", target: self, action: #selector(settingToggle(_:)))
+    func toggle(_ title: String, _ enabled: Bool, _ key: String) {
+      let b = WindowsCheckbox(title: title, target: self, action: #selector(settingToggle(_:)))
       b.state = enabled ? .on : .off
       b.identifier = NSUserInterfaceItemIdentifier(key)
-      return b
+      panel.addArrangedSubview(b)
     }
-    row(
-      "Real-time update speed", "High: 1 second · Normal: 2 seconds · Low: 4 seconds",
-      popup(RefreshSpeed.allCases.map(\.rawValue), speed.rawValue, "speed"))
-    row(
-      "Default start page", "Choose the section shown when Task Manager launches.",
-      popup(
-        Page.allCases.map(\.rawValue), defaults.string(forKey: "startPage") ?? "Processes",
-        "startPage"))
-    row(
-      "Always on top", "Keep this window above other applications.",
-      toggle(defaults.bool(forKey: "alwaysTop"), "alwaysTop"))
-    row(
-      "Group application processes",
-      "Use bundle identity and parent relationships for expandable groups.",
-      toggle(grouped, "grouped"))
-    row(
-      "Graph history",
-      "Bounded rolling history. Increasing duration starts collecting more samples.",
-      popup(
-        ["60 seconds", "180 seconds", "300 seconds"],
-        "\(defaults.integer(forKey:"graphSeconds")==0 ? 60:defaults.integer(forKey:"graphSeconds")) seconds",
-        "graphSeconds"))
-    row(
-      "Units", "Binary: KiB / MiB / GiB · Decimal: KB / MB / GB",
-      popup(["Binary", "Decimal"], defaults.string(forKey: "units") ?? "Binary", "units"))
-    row(
-      "Appearance", "Follow macOS, or use a light or dark interface.",
-      popup(["System", "Light", "Dark"], defaults.string(forKey: "theme") ?? "System", "theme"))
-    row(
-      "Launch at login", "Uses Apple's Service Management. macOS may require approval.",
-      toggle(SMAppService.mainApp.status == .enabled, "login"))
-    row(
-      "Confirm destructive actions",
-      "End Task, Force Quit, priority and startup changes always require confirmation.",
-      label("Always enabled", 12, .medium, .secondaryLabelColor))
-    let help = label(
-      "Permissions & unavailable metrics\n\nTask Manager runs as your user, without root or Full Disk Access. Protected process details may be unavailable. Other users' and critical system processes are read-only. Manage modern background items in System Settings → General → Login Items & Extensions.",
+    heading("Default Start Page")
+    popup(
+      Page.allCases.map(\.rawValue), defaults.string(forKey: "startPage") ?? "Processes",
+      "startPage")
+    heading("Real time update speed")
+    popup(RefreshSpeed.allCases.map(\.rawValue), speed.rawValue, "speed")
+    heading("Window management")
+    toggle("Always on top", defaults.bool(forKey: "alwaysTop"), "alwaysTop")
+    toggle("Minimize on use", defaults.bool(forKey: "minimizeOnUse"), "minimizeOnUse")
+    toggle("Hide when minimized", defaults.bool(forKey: "hideWhenMinimized"), "hideWhenMinimized")
+    panel.setCustomSpacing(24, after: panel.arrangedSubviews.last!)
+    heading("Other options")
+    toggle("Group application processes", grouped, "grouped")
+    toggle("Launch at login", SMAppService.mainApp.status == .enabled, "login")
+    panel.setCustomSpacing(24, after: panel.arrangedSubviews.last!)
+    heading("App theme")
+    popup(["System", "Light", "Dark"], defaults.string(forKey: "theme") ?? "System", "theme")
+    heading("Graph history")
+    popup(
+      ["60 seconds", "180 seconds", "300 seconds"],
+      "\(defaults.integer(forKey:"graphSeconds")==0 ? 60:defaults.integer(forKey:"graphSeconds")) seconds",
+      "graphSeconds")
+    heading("Units")
+    popup(["Binary", "Decimal"], defaults.string(forKey: "units") ?? "Binary", "units")
+    let note = label(
+      "Destructive actions always require confirmation. Unavailable system metrics appear as —.",
       12, .regular, .secondaryLabelColor)
-    help.maximumNumberOfLines = 6
-    help.lineBreakMode = .byWordWrapping
-    panel.addArrangedSubview(help)
-    help.widthAnchor.constraint(equalTo: panel.widthAnchor, constant: -56).isActive = true
-    panel.setCustomSpacing(20, after: panel.arrangedSubviews[panel.arrangedSubviews.count - 2])
+    note.maximumNumberOfLines = 2
+    note.lineBreakMode = .byWordWrapping
+    panel.addArrangedSubview(note)
+    note.widthAnchor.constraint(equalTo: panel.widthAnchor, constant: -64).isActive = true
     let scroll = NSScrollView()
     scroll.contentView = FlippedClipView()
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
+    scroll.drawsBackground = false
     scroll.documentView = panel
     panel.translatesAutoresizingMaskIntoConstraints = false
     panel.widthAnchor.constraint(equalTo: scroll.widthAnchor).isActive = true
@@ -147,10 +129,11 @@ extension AppController {
   }
   func showInspector(_ p: ProcessRecord) {
     inspector?.close()
-    let panel = NSPanel(
+    let panel = WindowsWindow(
       contentRect: NSRect(x: 0, y: 0, width: 680, height: 640),
       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-    panel.title = "Inspect · \(p.name)"
+    panel.title = "Properties · \(p.name)"
+    let inspectorBody = decorateWindowsWindow(panel, title: panel.title)
     panel.minSize = NSSize(width: 560, height: 440)
     panel.isReleasedWhenClosed = false
     inspector = panel
@@ -188,7 +171,7 @@ extension AppController {
     let content = stack([heading, scroller], .vertical, 16)
     content.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
     scroller.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -40).isActive = true
-    pin(content, panel.contentView!)
+    pin(content, inspectorBody)
     panel.center()
     panel.makeKeyAndOrderFront(nil)
     queue.async {

@@ -4,9 +4,11 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT_DIR="$(dirname "$PROJECT_DIR")"
 APP_DIR="$OUTPUT_DIR/Task Manager.app"
 cd "$PROJECT_DIR"
-swift build -c release
+swift build -c release --arch arm64
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 python3 Scripts/MakeIcon.py "$APP_DIR/Contents/Resources/AppIcon.icns"
+python3 Scripts/VerifyIcon.py "$APP_DIR/Contents/Resources/AppIcon.icns"
+cp -R Assets/Fonts "$APP_DIR/Contents/Resources/"
 cp .build/release/TaskManager "$APP_DIR/Contents/MacOS/TaskManager"
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -18,8 +20,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Task Manager</string>
 <key>CFBundleDisplayName</key><string>Task Manager</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>1.1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

@@ -79,7 +79,7 @@ void tm_system(TMSystem *s) {
  s->compressed=(uint64_t)vm.compressor_page_count*page; s->free_bytes=(uint64_t)vm.free_count*page;
  s->purgeable=(uint64_t)vm.purgeable_count*page; s->speculative=(uint64_t)vm.speculative_count*page; }
  mach_port_deallocate(mach_task_self(),host);
- s->ram=sysnum("hw.memsize"); s->logical=(int)sysnum("hw.logicalcpu");
+ s->ram=sysnum("hw.memsize"); s->logical=(int)sysnum("hw.logicalcpu"); s->physical=(int)sysnum("hw.physicalcpu");
  s->performance=(int)sysnum("hw.perflevel0.logicalcpu"); s->efficiency=(int)sysnum("hw.perflevel1.logicalcpu");
  s->pressure=(int)sysnum("kern.memorystatus_vm_pressure_level");
  size_t sz=sizeof(s->cpu_brand); sysctlbyname("machdep.cpu.brand_string",s->cpu_brand,&sz,NULL,0);
@@ -116,3 +116,26 @@ int tm_arguments(int pid,char *buffer,int capacity){
 }
 int tm_open_files(int pid){int n=proc_pidinfo(pid,PROC_PIDLISTFDS,0,NULL,0);return n>0?n/(int)sizeof(struct proc_fdinfo):-1;}
 int tm_sessions(char *buffer,int capacity){buffer[0]=0;setutxent();struct utmpx *u;int n=0;while((u=getutxent()))if(u->ut_type==USER_PROCESS){char line[512];snprintf(line,sizeof(line),"%.*s\t%.*s\n",(int)sizeof(u->ut_user),u->ut_user,(int)sizeof(u->ut_line),u->ut_line);strlcat(buffer,line,capacity);n++;}endutxent();return n;}
+
+int tm_cpu_load(TMCPU **out) {
+ *out = NULL;
+ processor_info_array_t info = NULL;
+ mach_msg_type_number_t count = 0;
+ natural_t processors = 0;
+ mach_port_t host = mach_host_self();
+ kern_return_t status = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &processors, &info, &count);
+ mach_port_deallocate(mach_task_self(), host);
+ if (status != KERN_SUCCESS) return 0;
+ TMCPU *result = calloc(processors, sizeof(TMCPU));
+ if (result && count >= processors * CPU_STATE_MAX) {
+  for (natural_t i = 0; i < processors; i++) {
+   result[i].user = (uint32_t)info[i * CPU_STATE_MAX + CPU_STATE_USER];
+   result[i].system = (uint32_t)info[i * CPU_STATE_MAX + CPU_STATE_SYSTEM];
+   result[i].idle = (uint32_t)info[i * CPU_STATE_MAX + CPU_STATE_IDLE];
+   result[i].nice = (uint32_t)info[i * CPU_STATE_MAX + CPU_STATE_NICE];
+  }
+ } else { free(result); result = NULL; }
+ vm_deallocate(mach_task_self(), (vm_address_t)info, count * sizeof(integer_t));
+ *out = result;
+ return result ? (int)processors : 0;
+}

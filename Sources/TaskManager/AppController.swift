@@ -16,6 +16,7 @@ struct DisplayRow {
   var process: ProcessRecord?
   var service: ServiceRecord?
   var members: [ProcessRecord] = []
+  var section = false
   var group = false
   var indent: CGFloat = 0
   var iconPath: String = ""
@@ -24,8 +25,8 @@ struct DisplayRow {
 enum Page: String, CaseIterable {
   case processes = "Processes"
   case performance = "Performance"
-  case history = "App History"
-  case startup = "Startup Apps"
+  case history = "App history"
+  case startup = "Startup apps"
   case users = "Users"
   case details = "Details"
   case services = "Services"
@@ -57,14 +58,14 @@ enum Page: String, CaseIterable {
 }
 
 final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSource,
-  NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate
+  NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate, NSWindowDelegate
 {
   var window: NSWindow!
-  let sidebar = Surface(.windowBackgroundColor)
-  let content = NSView()
-  let pageTitle = label("Processes", 23, .semibold)
+  let sidebar = Surface(winBackdrop)
+  let content = Surface(winContent)
+  let pageTitle = label("Processes", 14, .semibold)
   let subtitle = label("", 12, .regular, .secondaryLabelColor)
-  let search = NSSearchField()
+  let search = WindowsSearchField()
   let table = ProcessTable()
   let scroll = NSScrollView()
   let footer = label("Collecting system data…", 11, .regular, .secondaryLabelColor)
@@ -73,7 +74,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   var navButtons: [Page: NSButton] = [:]
   var collapsed = false
   var actionBar = NSStackView()
+  var commandSurface: Surface!
+  let commandRule = rule()
   var endButton: NSButton!
+  var efficiencyButton: NSButton!
+  var caption: WindowsTitleBar!
   var inspectButton: NSButton!
   var refreshButton: NSButton!
   var columnsButton: NSPopUpButton!
@@ -94,12 +99,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   let queue = DispatchQueue(label: "com.local.TaskManager.sampling", qos: .utility)
   let serviceQueue = DispatchQueue(label: "com.local.TaskManager.services", qos: .utility)
   let sampler = Sampler()
+  let powerMode = PowerModeController()
   let history = HistoryStore()
   var samples: [SystemSnapshot] = []
   var perf: PerformanceView!
   var settingsView: NSView!
   var icons: [String: NSImage] = [:]
-  var inspector: NSPanel?
+  var inspector: NSWindow?
   var sampleCount = 0
   var lastSave = Date.distantPast
   let defaults = UserDefaults.standard
@@ -124,11 +130,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     {
       NSApp.applicationIconImage = icon
     }
+    if !defaults.bool(forKey: "windowsChromeV2") {
+      defaults.set(true, forKey: "columns.Processes.pid")
+      defaults.set(true, forKey: "columns.Processes.user")
+      defaults.set(false, forKey: "columns.Processes.network")
+      defaults.set(true, forKey: "windowsChromeV2")
+    }
+    if !defaults.bool(forKey: "windowsReferenceV3") {
+      defaults.set("Light", forKey: "theme")
+      defaults.set(true, forKey: "windowsReferenceV3")
+    }
     installMenus()
     loadHistory()
     buildWindow()
     showPage(Page(rawValue: defaults.string(forKey: "startPage") ?? "Processes") ?? .processes)
     startTimer()
+    powerMode.onChange = { [weak self] in self?.updateActions() }
+    powerMode.start()
     poll()
     scanServices()
     serviceTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
@@ -143,6 +161,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   }
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
   func applicationWillTerminate(_ notification: Notification) { saveHistory() }
+  func windowDidMiniaturize(_ notification: Notification) {
+    if defaults.bool(forKey: "hideWhenMinimized") { NSApp.hide(nil) }
+  }
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
+  {
+    window.deminiaturize(nil)
+    window.makeKeyAndOrderFront(nil)
+    return true
+  }
   func installMenus() {
     let main = NSMenu()
     let appItem = NSMenuItem()
@@ -191,43 +218,60 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     NSApp.mainMenu = main
   }
   func buildWindow() {
-    window = NSWindow(
+    window = WindowsWindow(
       contentRect: NSRect(x: 0, y: 0, width: 1360, height: 830),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+      backing: .buffered, defer: false
     )
     window.title = "Task Manager"
+    window.delegate = self
     window.minSize = NSSize(width: 1000, height: 650)
     window.center()
     window.setFrameAutosaveName("TaskManagerWindow")
     window.titlebarAppearsTransparent = true
-    window.toolbarStyle = .unifiedCompact
+    window.titleVisibility = .hidden
+    window.titlebarSeparatorStyle = .none
+    window.isMovableByWindowBackground = false
+    for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+      window.standardWindowButton(kind)?.isHidden = true
+    }
     window.level = defaults.bool(forKey: "alwaysTop") ? .floating : .normal
-    let root = Surface(.windowBackgroundColor)
+    let root = Surface(winBackdrop)
+    caption = WindowsTitleBar(search: search, controller: self)
+    (window as? WindowsWindow)?.caption = caption
+    caption.translatesAutoresizingMaskIntoConstraints = false
+    root.addSubview(caption)
+    NSLayoutConstraint.activate([
+      caption.topAnchor.constraint(equalTo: root.topAnchor),
+      caption.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+      caption.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+      caption.heightAnchor.constraint(equalToConstant: 48),
+    ])
     window.contentView = root
     sidebar.translatesAutoresizingMaskIntoConstraints = false
     content.translatesAutoresizingMaskIntoConstraints = false
+    content.layer?.cornerRadius = 8
+    content.layer?.masksToBounds = true
     root.addSubview(sidebar)
     root.addSubview(content)
-    sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: 210)
+    sidebarWidth = sidebar.widthAnchor.constraint(equalToConstant: collapsed ? 48 : 240)
     NSLayoutConstraint.activate([
       sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-      sidebar.topAnchor.constraint(equalTo: root.topAnchor),
+      sidebar.topAnchor.constraint(equalTo: caption.bottomAnchor),
       sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor), sidebarWidth,
       content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-      content.topAnchor.constraint(equalTo: root.topAnchor),
+      content.topAnchor.constraint(equalTo: caption.bottomAnchor),
       content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
       content.bottomAnchor.constraint(equalTo: root.bottomAnchor),
     ])
-    let collapse = button("", "sidebar.left", target: self, action: #selector(toggleSidebar))
-    collapse.isBordered = false
-    collapse.toolTip = "Collapse sidebar (⌘\\)"
-    let brand = label("TASK MANAGER", 10, .semibold, .secondaryLabelColor)
-    let navHeader = stack([collapse, brand])
-    let nav = stack([navHeader], .vertical, 9)
-    nav.edgeInsets = NSEdgeInsets(top: 12, left: 10, bottom: 16, right: 10)
+    let nav = stack([], .vertical, 2)
+    nav.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 8, right: 4)
     for (i, p) in Page.allCases.enumerated() {
       let b = button(p.rawValue, p.symbol, target: self, action: #selector(navigate(_:)))
       b.tag = i
+      b.title = collapsed ? "" : p.rawValue
+      b.toolTip = p.rawValue
+      (b as? FlatButton)?.navigation = true
       b.isBordered = false
       b.alignment = .left
       b.imageHugsTitle = true
@@ -237,50 +281,46 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       b.layer?.cornerRadius = 5
       b.heightAnchor.constraint(equalToConstant: 40).isActive = true
       nav.addArrangedSubview(b)
-      b.widthAnchor.constraint(equalTo: nav.widthAnchor, constant: -20).isActive = true
+      b.widthAnchor.constraint(equalTo: nav.widthAnchor, constant: -8).isActive = true
       navButtons[p] = b
     }
     pin(nav, sidebar)
     nav.distribution = .fill
     let spacer = NSView()
-    nav.insertArrangedSubview(spacer, at: 8)
+    nav.insertArrangedSubview(spacer, at: 7)
     spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
-    let version = label("macOS  /  Apple Silicon", 10, .regular, .tertiaryLabelColor)
-    nav.addArrangedSubview(version)
-    let divider = Surface(.separatorColor)
-    divider.translatesAutoresizingMaskIntoConstraints = false
-    root.addSubview(divider)
-    NSLayoutConstraint.activate([
-      divider.widthAnchor.constraint(equalToConstant: 1),
-      divider.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-      divider.topAnchor.constraint(equalTo: root.topAnchor),
-      divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-    ])
-    let titleStack = stack([pageTitle, subtitle], .vertical, 4)
-    search.placeholderString = "Search name, PID, user or path  ⌘F"
+    search.placeholderString = "Type a name, publisher, or PID to search"
     search.delegate = self
     search.sendsSearchStringImmediately = true
     search.controlSize = .regular
+    search.font = winFont(12)
+    search.focusRingType = .none
+    search.isBezeled = false
     search.setAccessibilityIdentifier("processSearch")
-    search.widthAnchor.constraint(equalToConstant: 330).isActive = true
-    let topSpacer = NSView()
-    topSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    let header = stack([titleStack, topSpacer, search], .horizontal, 16)
-    header.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 18, right: 24)
-    endButton = button("End Task", "xmark.circle", target: self, action: #selector(endTask))
+    endButton = button("End task", "xmark.circle", target: self, action: #selector(endTask))
     inspectButton = button(
-      "Inspect", "info.circle", target: self, action: #selector(inspectSelected))
+      "Properties", "info.circle", target: self, action: #selector(inspectSelected))
     refreshButton = button(
       "Refresh", "arrow.clockwise", target: self, action: #selector(refreshNow))
-    columnsButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    columnsButton = WindowsPopupButton(frame: .zero, pullsDown: true)
     columnsButton.controlSize = .small
-    columnsButton.bezelStyle = .rounded
-    actionBar = stack([activity, NSView(), refreshButton, inspectButton, endButton, columnsButton])
-    actionBar.edgeInsets = NSEdgeInsets(top: 10, left: 24, bottom: 10, right: 24)
+    columnsButton.bezelStyle = .inline
+    columnsButton.isBordered = false
+    columnsButton.widthAnchor.constraint(equalToConstant: 65).isActive = true
+    let run = button("Run new task", "plus.square", target: self, action: #selector(runNewTask))
+    efficiencyButton = button(
+      "Efficiency mode", "leaf", target: self, action: #selector(toggleEfficiencyMode))
+    efficiencyButton.toolTip =
+      "Toggle macOS Low Power Mode for the whole Mac."
+    actionBar = stack(
+      [pageTitle, NSView(), run, endButton, efficiencyButton, inspectButton, columnsButton],
+      .horizontal, 12)
+    actionBar.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 6, right: 16)
     actionBar.arrangedSubviews[1].setContentHuggingPriority(.defaultLow, for: .horizontal)
     table.delegate = self
     table.dataSource = self
-    table.rowHeight = 29
+    table.rowHeight = 30
+    table.backgroundColor = winContent
     table.intercellSpacing = NSSize(width: 1, height: 0)
     table.usesAlternatingRowBackgroundColors = false
     table.style = .plain
@@ -310,12 +350,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     settingsView = makeSettings()
     pin(settingsView, body)
     settingsView.isHidden = true
-    let bottom = stack([footer])
-    bottom.edgeInsets = NSEdgeInsets(top: 8, left: 24, bottom: 8, right: 24)
-    header.heightAnchor.constraint(equalToConstant: 86).isActive = true
-    actionBar.heightAnchor.constraint(equalToConstant: 42).isActive = true
-    bottom.heightAnchor.constraint(equalToConstant: 32).isActive = true
-    let outer = stack([header, rule(), actionBar, rule(), body, rule(), bottom], .vertical, 0)
+    actionBar.heightAnchor.constraint(equalToConstant: 48).isActive = true
+    commandSurface = Surface(winCommand)
+    pin(actionBar, commandSurface)
+    commandSurface.heightAnchor.constraint(equalToConstant: 48).isActive = true
+    let outer = stack([commandSurface!, commandRule, body], .vertical, 0)
     pin(outer, content)
     for v in outer.arrangedSubviews {
       v.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
@@ -324,8 +363,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     if let screen = window.screen ?? NSScreen.main {
       window.setContentSize(
         NSSize(
-          width: min(1360, screen.visibleFrame.width - 60),
-          height: min(830, screen.visibleFrame.height - 80)))
+          width: min(1120, screen.visibleFrame.width - 60),
+          height: min(720, screen.visibleFrame.height - 80)))
       window.center()
     }
   }
@@ -358,7 +397,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
         self.system = result.1
         self.sampleCount += 1
         self.samples.append(result.1)
-        self.perf.captureEnvironment(result.1)
         let seconds = self.defaults.double(forKey: "graphSeconds")
         let cutoff = Date().addingTimeInterval(-(seconds > 0 ? seconds : 60))
         self.samples.removeAll { $0.timestamp < cutoff }
@@ -414,13 +452,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   @objc func openSettings() { showPage(.settings) }
   func showPage(_ next: Page) {
     page = next
+    commandSurface.isHidden = page == .settings
+    commandRule.isHidden = page == .settings
     if page == .settings { syncSettings() }
     pageTitle.stringValue = page.rawValue
     subtitle.stringValue = page.subtitle
     for (p, b) in navButtons {
-      b.layer?.backgroundColor =
-        (p == page ? accent.withAlphaComponent(0.15) : NSColor.clear).cgColor
-      b.contentTintColor = p == page ? accent : .labelColor
+      (b as? FlatButton)?.selected = p == page
+      b.contentTintColor = .labelColor
       b.setAccessibilityValue(p == page ? "Selected" : "")
     }
     search.isHidden = [.performance, .settings].contains(page)
@@ -433,19 +472,36 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     configureColumns()
     updateContent()
     updateActions()
+    if !rows.isEmpty { table.scrollRowToVisible(0) }
   }
   @objc func toggleSidebar() {
     collapsed.toggle()
-    sidebarWidth.constant = collapsed ? 64 : 210
+    sidebarWidth.constant = collapsed ? 48 : 240
     for (p, b) in navButtons {
       b.title = collapsed ? "" : p.rawValue
       b.toolTip = p.rawValue
     }
-    if let nav = sidebar.subviews.first as? NSStackView {
-      if let header = nav.arrangedSubviews.first as? NSStackView {
-        header.arrangedSubviews.last?.isHidden = collapsed
+  }
+  @objc func runNewTask() {
+    let (accepted, value) = WindowsDialog(
+      title: "Create new task",
+      message:
+        "Type the name of an application, or the full path of a program or document to open.",
+      confirm: "OK", input: true
+    ).run()
+    let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard accepted, !name.isEmpty else { return }
+    let path = (name as NSString).expandingTildeInPath
+    if path.hasPrefix("/") {
+      if !NSWorkspace.shared.open(URL(fileURLWithPath: path)) {
+        showError("Could not open \(name).")
       }
-      nav.arrangedSubviews.last?.isHidden = collapsed
+    } else {
+      let task = Process()
+      task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+      task.arguments = ["-a", name]
+      task.standardError = FileHandle.nullDevice
+      do { try task.run() } catch { showError(error.localizedDescription) }
     }
   }
   @objc func focusSearch() {
@@ -467,13 +523,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     for c in table.tableColumns { table.removeTableColumn(c) }
     let processColumns: [Column] = [
       Column(key: "name", title: "Name", width: 290),
-      Column(key: "pid", title: "PID", width: 70, numeric: true),
+      Column(key: "pid", title: "PID", width: 70, numeric: true, hidden: true),
       Column(key: "status", title: "Status", width: 94),
-      Column(key: "user", title: "User", width: 130),
+      Column(key: "user", title: "User", width: 130, hidden: true),
       Column(key: "cpu", title: "CPU", width: 95, numeric: true),
       Column(key: "memory", title: "Memory", width: 116, numeric: true),
       Column(key: "disk", title: "Disk", width: 108, numeric: true),
-      Column(key: "network", title: "Network", width: 92, numeric: true, hidden: true),
+      Column(key: "network", title: "Network", width: 92, numeric: true),
       Column(key: "gpu", title: "GPU", width: 75, numeric: true, hidden: true),
       Column(key: "engine", title: "GPU engine", width: 110, hidden: true),
       Column(key: "time", title: "CPU time", width: 108, numeric: true, hidden: true),
@@ -491,10 +547,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     case .processes, .details:
       columns = processColumns
       if page == .details {
-        let visible: Set<String> = [
-          "name", "pid", "ppid", "user", "cpu", "memory", "threads", "nice", "arch", "path",
-          "bundle", "start", "status",
-        ]
+        let visible: Set<String> = ["name", "pid", "status", "user", "cpu", "memory", "arch"]
         columns = columns.map {
           var c = $0
           c.hidden = !visible.contains(c.key)
@@ -537,6 +590,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       ]
     default: columns = []
     }
+    if page == .startup || page == .services {
+      let keys =
+        page == .startup
+        ? ["name", "publisher", "status", "impact"]
+        : ["name", "pid", "program", "status", "domain"]
+      columns = columns.map {
+        var column = $0
+        column.hidden = !keys.contains(column.key)
+        return column
+      }
+      columns.sort { (keys.firstIndex(of: $0.key) ?? 99) < (keys.firstIndex(of: $1.key) ?? 99) }
+      if page == .services {
+        for i in columns.indices {
+          let c = columns[i]
+          let titles = ["name": "Name", "program": "Description", "domain": "Group"]
+          if let title = titles[c.key] {
+            columns[i] = Column(
+              key: c.key, title: title, width: c.key == "program" ? 300 : c.width,
+              numeric: c.numeric, hidden: c.hidden)
+          }
+        }
+      }
+    }
     for c in columns {
       let tc = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(c.key))
       tc.title = c.title
@@ -552,22 +628,52 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       }
       table.addTableColumn(tc)
     }
-    table.autosaveName = "TaskManager.\(page.rawValue)"
+    table.autosaveName = "TaskManager.Reference3.\(page.rawValue)"
     table.autosaveTableColumns = true
-    table.headerView?.frame.size.height = page == .processes ? 52 : 30
+    table.headerView?.frame.size.height = [.processes, .users].contains(page) ? 52 : 26
     table.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
     columnsButton.removeAllItems()
-    columnsButton.addItem(withTitle: "Columns")
+    columnsButton.addItem(withTitle: "View")
+    for (title, action) in [
+      ("Refresh now", #selector(refreshNow)),
+      ("Pause / resume", #selector(togglePause)),
+    ] {
+      columnsButton.addItem(withTitle: title)
+      columnsButton.lastItem?.target = self
+      columnsButton.lastItem?.action = action
+    }
+    columnsButton.menu?.addItem(.separator())
+    let selectColumns = NSMenuItem(title: "Select columns", action: nil, keyEquivalent: "")
+    let columnMenu = NSMenu()
+    columnMenu.autoenablesItems = false
+    columnsButton.menu?.addItem(selectColumns)
+    selectColumns.submenu = columnMenu
     for (i, c) in columns.enumerated() {
-      columnsButton.addItem(withTitle: c.title)
-      let item = columnsButton.lastItem!
+      let item = columnMenu.addItem(withTitle: c.title, action: nil, keyEquivalent: "")
       item.tag = i
       item.representedObject = c.key
       item.state = table.tableColumns[i].isHidden ? .off : .on
       item.target = self
       item.action = #selector(toggleColumn(_:))
     }
-    columnsButton.isHidden = columns.isEmpty
+    columnsButton.isHidden = page == .settings
+    if page == .performance {
+      columnsButton.removeAllItems()
+      columnsButton.addItem(withTitle: "•••")
+      for (title, selector) in [
+        ("Copy", #selector(copyPerformanceInfo)),
+        ("Resource Monitor", #selector(openResourceMonitor)),
+      ] {
+        columnsButton.addItem(withTitle: title)
+        columnsButton.lastItem?.target = self
+        columnsButton.lastItem?.action = selector
+      }
+    }
+  }
+  @objc func copyPerformanceInfo() { perf.copyPerformance() }
+  @objc func openResourceMonitor() {
+    NSWorkspace.shared.open(
+      URL(fileURLWithPath: "/System/Applications/Utilities/Activity Monitor.app"))
   }
   @objc func toggleColumn(_ item: NSMenuItem) {
     guard columns.indices.contains(item.tag) else { return }
@@ -621,7 +727,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
         row.id = g.key
         row.group = true
         row.process = nil
-        row.members = match.isEmpty ? g.members : match
+        row.members = g.members
         row.values["name"] = "\(g.name) (\(g.members.count))"
         row.values["pid"] = ""
         row.values["status"] = ""
@@ -665,12 +771,35 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
         }
         groups.append(row)
       }
-      for row in sortedRows(groups) {
-        next.append(row)
-        if row.group && (expanded.contains(row.id) || !q.isEmpty) {
-          next += ProcessLogic.sorted(
-            row.members, key: sortKey, ascending: ascending, total: system.raw.ram
-          ).map { processRow($0, indent: 24) }
+      let categories = ["Apps", "Background processes", "macOS processes"]
+      let applicationPaths = Set(
+        NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap
+        { $0.bundleURL?.path })
+      func category(_ row: DisplayRow) -> Int {
+        let members = row.members.isEmpty ? [row.process].compactMap { $0 } : row.members
+        if members.contains(where: { applicationPaths.contains($0.appPath) }) { return 0 }
+        if members.contains(where: {
+          $0.path.hasPrefix("/System/") || $0.path.hasPrefix("/usr/libexec/")
+            || $0.path.hasPrefix("/usr/sbin/")
+        }) {
+          return 2
+        }
+        return 1
+      }
+      for categoryIndex in categories.indices {
+        let members = groups.filter { category($0) == categoryIndex }
+        if members.isEmpty { continue }
+        next.append(
+          DisplayRow(
+            id: "section:\(categoryIndex)",
+            values: ["name": "\(categories[categoryIndex]) (\(members.count))"], section: true))
+        for row in sortedRows(members) {
+          next.append(row)
+          if row.group && (expanded.contains(row.id) || !q.isEmpty) {
+            next += ProcessLogic.sorted(
+              row.members, key: sortKey, ascending: ascending, total: system.raw.ram
+            ).map { processRow($0, indent: 24) }
+          }
         }
       }
     case .processes, .details:
@@ -775,11 +904,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     for tc in table.tableColumns {
       guard let header = tc.headerCell as? MetricHeader else { continue }
       header.summary =
-        page == .processes
+        [.processes, .users].contains(page)
         ? ([
           "cpu": String(format: "%.0f%%", system.cpu),
           "memory": String(format: "%.0f%%", system.memoryPercent),
           "disk": bytes(system.read + system.write) + "/s",
+          "network": bytes(system.sent + system.received) + "/s",
         ][tc.identifier.rawValue] ?? "") : ""
     }
     table.headerView?.needsDisplay = true
@@ -817,6 +947,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     }
   }
   func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+  func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { !rows[row].section }
+  func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+    rows[row].section ? 40 : ([.details, .services].contains(page) ? 22 : 28)
+  }
+  func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+    WindowsTableRow()
+  }
   func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView?
   {
     guard rows.indices.contains(row), let col = tableColumn else { return nil }
@@ -828,6 +965,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     cell.identifier = col.identifier
     cell.frame.size.width = col.width
     let numeric = columns.first { $0.key == key }?.numeric ?? false
+    if r.section {
+      cell.configure(text: r.values[key] ?? "")
+      cell.title.font = winFont(16)
+      cell.title.textColor = .secondaryLabelColor
+      cell.heat = 0
+      return cell
+    }
+    cell.title.textColor = .labelColor
     var icon: NSImage?
     if key == "name" && !r.iconPath.isEmpty && r.iconPath != "—" {
       if icons[r.iconPath] == nil {
@@ -837,15 +982,19 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       icon = icons[r.iconPath]
     }
     if key == "name", icon == nil {
-      icon = NSImage(
-        systemSymbolName: page == .users && r.group ? "person.crop.circle" : "app.dashed",
-        accessibilityDescription: nil)
+      icon = windowsIcon(page == .users && r.group ? "users" : "app")
     }
+    let text =
+      key == "memory" && defaults.bool(forKey: "percent.memory") && r.numbers["memory"] != nil
+      ? String(format: "%.1f%%", (r.numbers["memory"] ?? 0) / max(1, Double(system.raw.ram)) * 100)
+      : (r.values[key] ?? "")
     cell.configure(
-      text: r.values[key] ?? "", image: icon, indent: key == "name" ? r.indent : 0,
+      text: text, image: icon,
+      indent: key == "name"
+        ? (r.indent + (page == .processes && grouped && !r.group && r.indent == 0 ? 18 : 0)) : 0,
       expand: key == "name" && r.group
         ? (expanded.contains(r.id) || (page == .processes && !search.stringValue.isEmpty)) : nil,
-      numeric: numeric, bold: r.group)
+      numeric: numeric, bold: false)
     cell.disclosure.target = self
     cell.disclosure.action = #selector(toggleGroup(_:))
     cell.disclosure.tag = row
@@ -855,7 +1004,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       let v = r.numbers[key] ?? 0
       cell.heat =
         key == "cpu" ? v / 100 : (key == "memory" ? v / Double(max(1, system.raw.ram)) : v / 1e8)
-      if v > 0 { cell.heat = max(0.02, cell.heat) }
+      if r.numbers[key] != nil { cell.heat = max(0.02, cell.heat) }
     }
     if ["gpu", "network", "energy", "engine"].contains(key) {
       cell.toolTip =
@@ -877,18 +1026,39 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     table.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0] : nil }
   }
   var selectedProcesses: [ProcessRecord] { selectedRows.compactMap(\.process) }
+  var selectedActionProcesses: [ProcessRecord] {
+    var seen = Set<String>()
+    return selectedRows.flatMap { row -> [ProcessRecord] in
+      if let process = row.process { return [process] }
+      return page == .processes && row.group ? row.members : []
+    }.filter { seen.insert($0.id).inserted }
+  }
+  var validActionSelection: Bool {
+    !selectedRows.isEmpty
+      && selectedRows.allSatisfy {
+        !$0.section
+          && ($0.process != nil || (page == .processes && $0.group && !$0.members.isEmpty))
+      }
+  }
   func updateActions() {
     let processPage = [Page.processes, .details, .users].contains(page)
     endButton.isHidden = !processPage
-    inspectButton.isHidden = !processPage
+    inspectButton.isHidden = page != .details
+    efficiencyButton.isHidden = page != .processes
     endButton.isEnabled =
-      !selectedProcesses.isEmpty && selectedProcesses.count == selectedRows.count
-      && selectedProcesses.allSatisfy {
+      !selectedActionProcesses.isEmpty && validActionSelection
+      && selectedActionProcesses.allSatisfy {
         $0.protectedReason(currentUID: Int32(getuid()), ownPID: getpid()) == nil
       }
     inspectButton.isEnabled = selectedProcesses.count == 1
+    efficiencyButton.isEnabled = powerMode.supported && !powerMode.busy
+    (efficiencyButton as? FlatButton)?.selected = powerMode.enabled
+    efficiencyButton.setAccessibilityValue(
+      powerMode.enabled ? "Low Power Mode on" : "Low Power Mode off")
+    efficiencyButton.toolTip =
+      "macOS Low Power Mode: \(powerMode.enabled ? "On":"Off"). Changes the whole Mac's \(powerMode.source.rawValue) profile."
     refreshButton.isHidden = page == .settings
-    columnsButton.isHidden = columns.isEmpty
+    columnsButton.isHidden = page == .settings
     let expected = page == .history ? 1 : ([.startup, .services].contains(page) ? 2 : 0)
     let existing = actionBar.arrangedSubviews.filter { $0.tag == 900 }
     if existing.count != expected
@@ -941,44 +1111,193 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   }
   func contextMenu(_ row: Int) -> NSMenu {
     let menu = NSMenu()
-    func add(_ title: String, _ action: Selector, _ enabled: Bool = true) {
-      let i = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
-      i.target = self
-      i.isEnabled = enabled
-    }
     menu.autoenablesItems = false
-    if rows[row].group {
-      add(
-        expanded.contains(rows[row].id) ? "Collapse group" : "Expand group",
-        #selector(contextExpand))
-      return menu
+    guard rows.indices.contains(row), !rows[row].section else { return menu }
+    let rowValue = rows[row]
+    func add(_ title: String, _ action: Selector?, _ enabled: Bool = true) {
+      let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+      item.target = self
+      item.isEnabled = enabled
     }
-    if let p = rows[row].process {
-      let reason = p.protectedReason(currentUID: Int32(getuid()), ownPID: getpid())
-      add("Inspect process", #selector(inspectSelected))
-      add("End Task…", #selector(endTask), endButton.isEnabled)
-      add("Force Quit…", #selector(forceQuit), endButton.isEnabled)
+    if page == .processes && (rowValue.group || rowValue.process != nil) {
+      if rowValue.group {
+        add(expanded.contains(rowValue.id) ? "Collapse" : "Expand", #selector(contextExpand))
+        menu.items.last?.tag = -99
+      }
+      add("Switch to", #selector(switchToApplication), applicationForSelection() != nil)
+      add("End task", #selector(endTask), endButton.isEnabled)
+      let resource = NSMenuItem(title: "Resource values", action: nil, keyEquivalent: "")
+      resource.submenu = resourceValuesMenu()
+      menu.addItem(resource)
+      add("Provide feedback", #selector(provideFeedback))
       menu.addItem(.separator())
-      add("Reveal executable in Finder", #selector(reveal), !p.path.isEmpty)
-      add("Copy process details", #selector(copyDetails))
+      add("Efficiency mode", #selector(toggleEfficiencyMode), efficiencyButton.isEnabled)
+      menu.items.last?.state = powerMode.enabled ? .on : .off
+      add("Debug", nil, false)
+      add("Create dump file", nil, false)
+      menu.addItem(.separator())
+      add("Go to details", #selector(goToDetails), rowValue.process != nil)
+      add(
+        "Open file location", #selector(reveal),
+        rowValue.process != nil && !rowValue.iconPath.isEmpty)
+      add("Search online", #selector(searchOnline))
+      add("Properties", #selector(inspectSelected), rowValue.process != nil)
+      let extra = NSMenuItem(title: "More", action: nil, keyEquivalent: "")
+      let submenu = NSMenu()
+      submenu.autoenablesItems = false
+      for (name, selector, enabled) in [
+        ("Force quit", #selector(forceQuit), endButton.isEnabled),
+        ("Copy process details", #selector(copyDetails), true),
+        ("Copy PID", #selector(copyPID), rowValue.process != nil),
+      ] {
+        let item = submenu.addItem(withTitle: name, action: selector, keyEquivalent: "")
+        item.target = self
+        item.isEnabled = enabled
+      }
+      extra.submenu = submenu
+      menu.addItem(extra)
+    } else if let p = rowValue.process {
+      add("End task", #selector(endTask), endButton.isEnabled)
+      add("End process tree", #selector(endProcessTree), endButton.isEnabled)
+      let priority = NSMenuItem(title: "Set priority", action: nil, keyEquivalent: "")
+      let choices = NSMenu()
+      choices.autoenablesItems = false
+      for (title, value) in [
+        ("Realtime", -20), ("High", -10), ("Above normal", -5), ("Normal", 0), ("Below normal", 5),
+        ("Low", 10),
+      ] {
+        let item = choices.addItem(
+          withTitle: title, action: #selector(setPriority(_:)), keyEquivalent: "")
+        item.target = self
+        item.tag = value
+        item.state = p.nice == value ? .on : .off
+        item.isEnabled = endButton.isEnabled && value >= p.nice && value >= 0
+      }
+      priority.submenu = choices
+      menu.addItem(priority)
+      add("Set affinity", nil, false)
+      add("Create dump file", nil, false)
+      menu.addItem(.separator())
+      add("Open file location", #selector(reveal), !p.path.isEmpty)
+      add("Search online", #selector(searchOnline))
+      add("Properties", #selector(inspectSelected))
+      menu.addItem(.separator())
+      add("Force quit", #selector(forceQuit), endButton.isEnabled)
       add("Copy PID", #selector(copyPID))
       add("Copy executable path", #selector(copyPath))
-      menu.addItem(.separator())
-      add("Lower priority (nice +5)…", #selector(lowerPriority), reason == nil && p.nice < 19)
-      if let reason = reason {
-        let item = NSMenuItem(title: reason, action: nil, keyEquivalent: "")
-        item.isEnabled = false
-        menu.addItem(item)
-      }
-    } else if let s = rows[row].service {
-      add("Reveal property list", #selector(reveal), s.path != "—")
-      add(s.disabled ? "Enable…" : "Disable…", #selector(toggleService), s.mutable)
+      add("Copy process details", #selector(copyDetails))
+    } else if rowValue.group {
+      add(expanded.contains(rowValue.id) ? "Collapse" : "Expand", #selector(contextExpand))
+      add("Manage user accounts", #selector(openUserAccounts))
       add("Copy details", #selector(copyDetails))
-      add("Open Login Items & Extensions", #selector(openLoginItems))
+    } else if let service = rowValue.service {
+      add(service.disabled ? "Enable" : "Disable", #selector(toggleService), service.mutable)
+      add("Open file location", #selector(reveal), service.path != "—")
+      add("Search online", #selector(searchOnline))
+      add("Copy details", #selector(copyDetails))
+      add("Open Services", #selector(openLoginItems))
     } else {
+      add("Open app", #selector(openHistoryApplication))
       add("Copy details", #selector(copyDetails))
     }
     return menu
+  }
+  func resourceValuesMenu() -> NSMenu {
+    let menu = NSMenu()
+    menu.autoenablesItems = false
+    for key in ["memory", "disk", "network"] {
+      let parent = NSMenuItem(title: key.capitalized, action: nil, keyEquivalent: "")
+      let choices = NSMenu()
+      choices.autoenablesItems = false
+      for percent in [true, false] {
+        let item = choices.addItem(
+          withTitle: percent ? "Percents" : "Values", action: #selector(setResourceUnits(_:)),
+          keyEquivalent: "")
+        item.target = self
+        item.representedObject = key
+        item.tag = percent ? 1 : 0
+        item.state = defaults.bool(forKey: "percent." + key) == percent ? .on : .off
+        item.isEnabled = !percent || key == "memory"
+        if !item.isEnabled {
+          item.toolTip = "macOS does not expose the required utilization denominator."
+        }
+      }
+      parent.submenu = choices
+      menu.addItem(parent)
+    }
+    return menu
+  }
+  @objc func setResourceUnits(_ item: NSMenuItem) {
+    if let key = item.representedObject as? String {
+      defaults.set(item.tag == 1, forKey: "percent." + key)
+      updateContent()
+    }
+  }
+  func applicationForSelection() -> NSRunningApplication? {
+    let members = selectedRows.flatMap {
+      $0.members.isEmpty ? [$0.process].compactMap { $0 } : $0.members
+    }
+    return NSWorkspace.shared.runningApplications.first { app in
+      app.activationPolicy == .regular && members.contains { $0.pid == app.processIdentifier }
+    }
+  }
+  @objc func switchToApplication() {
+    if applicationForSelection()?.activate(options: [.activateAllWindows]) == true
+      && defaults.bool(forKey: "minimizeOnUse")
+    {
+      window.miniaturize(nil)
+    }
+  }
+  @objc func provideFeedback() {
+    NSWorkspace.shared.open(URL(string: "https://github.com/hotredsam/task-manager-macos/issues")!)
+  }
+  @objc func openUserAccounts() {
+    NSWorkspace.shared.open(
+      URL(string: "x-apple.systempreferences:com.apple.Users-Groups-Settings.extension")!)
+  }
+  @objc func openHistoryApplication() {
+    guard let path = selectedRows.first?.values["path"], !path.isEmpty else { return }
+    NSWorkspace.shared.open(URL(fileURLWithPath: path))
+  }
+  @objc func searchOnline() {
+    guard let name = selectedRows.first?.values["name"] else { return }
+    var url = URLComponents(string: "https://www.bing.com/search")!
+    url.queryItems = [URLQueryItem(name: "q", value: name)]
+    if let url = url.url { NSWorkspace.shared.open(url) }
+  }
+  @objc func setPriority(_ item: NSMenuItem) {
+    guard let p = selectedProcesses.first, let current = validated(p),
+      item.tag >= Int(current.nice), item.tag >= 0
+    else { return }
+    guard
+      confirm(
+        "Change priority?", "Set scheduling priority for \(p.name) to \(item.title).",
+        button: "Change priority"), validated(p) != nil
+    else { return }
+    if setpriority(PRIO_PROCESS, UInt32(p.pid), Int32(item.tag)) != 0 {
+      showError(String(cString: strerror(errno)))
+    }
+    poll()
+  }
+  @objc func endProcessTree() {
+    guard let process = selectedProcesses.first else { return }
+    var ids: Set<Int32> = [process.pid]
+    var count = 0
+    while count != ids.count {
+      count = ids.count
+      for record in records where ids.contains(record.ppid) { ids.insert(record.pid) }
+    }
+    let targets = records.filter { ids.contains($0.pid) }
+    terminate(force: false, targets: targets)
+  }
+  @objc func goToDetails() {
+    guard let process = selectedProcesses.first else { return }
+    search.stringValue = ""
+    showPage(.details)
+    if let row = rows.firstIndex(where: { $0.process?.id == process.id }) {
+      table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+      table.scrollRowToVisible(row)
+    }
   }
   @objc func contextExpand() {
     if let row = selectedRows.first { expandSelected(!expanded.contains(row.id)) }
@@ -986,13 +1305,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   @objc func endTask() { terminate(force: false) }
   @objc func forceQuit() { terminate(force: true) }
   func confirm(_ title: String, _ text: String, button: String) -> Bool {
-    let a = NSAlert()
-    a.messageText = title
-    a.informativeText = text
-    a.alertStyle = .warning
-    a.addButton(withTitle: button)
-    a.addButton(withTitle: "Cancel")
-    return a.runModal() == .alertFirstButtonReturn
+    WindowsDialog(title: title, message: text, confirm: button).run().0
   }
   func showError(_ message: String) {
     let a = NSAlert()
@@ -1010,9 +1323,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     else { return nil }
     return fresh
   }
-  func terminate(force: Bool) {
-    let processes = selectedProcesses
-    guard !processes.isEmpty, processes.count == selectedRows.count,
+  func terminate(force: Bool, targets: [ProcessRecord]? = nil) {
+    let processes = targets ?? selectedActionProcesses
+    guard !processes.isEmpty, targets != nil || validActionSelection,
       processes.allSatisfy({ validated($0) != nil })
     else {
       showError("The selection contains a protected, unavailable, or changed process.")
@@ -1040,6 +1353,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     }
     if !errors.isEmpty { showError(errors.joined(separator: "\n")) }
     poll()
+  }
+  @objc func toggleEfficiencyMode() {
+    powerMode.toggle(
+      confirm: { [weak self] title, message, button in
+        self?.confirm(title, message, button: button) ?? false
+      }, report: { [weak self] message in self?.showError(message) })
   }
   @objc func lowerPriority() {
     guard let p = selectedProcesses.first, let current = validated(p) else { return }

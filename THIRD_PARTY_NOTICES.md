@@ -2,8 +2,12 @@
 
 ## Windows 11 Task Manager icon
 
-The original icon artwork in `Assets/TaskManager-*.png` is credited to Microsoft Corporation. It was extracted from the Windows 11 24H2 `Taskmgr.exe` resource and published at [Wikimedia Commons: Windows 11 TASKMGR.png](https://commons.wikimedia.org/wiki/File:Windows_11_TASKMGR.png). The source record designates this artwork **public domain**, with attribution not required. Attribution is retained here for provenance.
+The original graph/gray-frame icon artwork in `Assets/TaskManager-Windows.ico` and `Assets/TaskManager-*.png` is Microsoft Windows artwork, obtained from [HaydenReeve/WindowsIcons](https://github.com/HaydenReeve/WindowsIcons/blob/main/Icons/applications/taskmanager.ico). It matches the icon generation in the Windows 11 22H2 visual reference. Microsoft retains any applicable rights; this third-party artwork is **excluded from the project's MIT license**. The source collection identifies its assets as extracted Windows resources and does not grant a separate MIT license to Microsoft's artwork.
 
-`Assets/icon-sources.json` records the original download URLs and SHA-256 checksums for each included size. `Scripts/MakeIcon.py` embeds the corresponding PNG bytes unchanged in the macOS ICNS container. The MIT license applies to this project's original code and documentation; it does not assert ownership of Microsoft's artwork or trademarks.
+`Assets/icon-sources.json` records the source ICO and SHA-256 checksums. `Scripts/ExtractIcon.py` losslessly converts the ICO bitmap representations to PNG; the embedded 256-pixel PNG is copied unchanged. `Scripts/MakeIcon.py` embeds the matching PNG representations in the macOS ICNS container without resampling. No AI-generated replacement is used.
 
 This is an independent project. It is not affiliated with, sponsored by, or endorsed by Microsoft or Apple. Product names and trademarks belong to their respective owners.
+
+## Selawik fonts
+
+The unmodified Selawik Regular and Semibold fonts are Copyright 2015 Microsoft Corporation, distributed under the SIL Open Font License 1.1. The full font license is included in `Assets/Fonts/LICENSE.txt` and in the built app. Source: [microsoft/Selawik, release 1.01](https://github.com/microsoft/Selawik/releases/tag/1.01). The app uses locally available Segoe UI, including fonts in an existing licensed Microsoft Office installation, when available and otherwise uses Selawik; it does not redistribute proprietary Windows fonts.

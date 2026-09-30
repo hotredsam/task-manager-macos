@@ -175,7 +175,32 @@ public enum RefreshSpeed: String, CaseIterable {
     }
   }
 }
+public struct CPUCounter {
+  public var user: UInt32, system: UInt32, idle: UInt32, nice: UInt32
+  public init(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32) {
+    self.user = user
+    self.system = system
+    self.idle = idle
+    self.nice = nice
+  }
+  public func utilization(since previous: CPUCounter) -> CPUUtilization? {
+    // Mach exposes wrapping 32-bit cumulative tick counters per processor.
+    let user = UInt64(user &- previous.user)
+    let system = UInt64(system &- previous.system)
+    let idle = UInt64(idle &- previous.idle)
+    let nice = UInt64(nice &- previous.nice)
+    let total = user + system + idle + nice
+    guard total > 0 else { return nil }
+    return CPUUtilization(
+      total: Double(user + system + nice) / Double(total) * 100,
+      kernel: Double(system) / Double(total) * 100)
+  }
+}
+public struct CPUUtilization {
+  public let total: Double, kernel: Double
+}
 public struct SystemSnapshot {
+  public var logicalCPUs: [CPUUtilization?] = []
   public var raw = TMSystem(), cpu: Double = 0, read: Double = 0, write: Double = 0,
     received: Double = 0, sent: Double = 0
   public var timestamp = Date()
@@ -187,12 +212,14 @@ public struct SystemSnapshot {
 public final class Sampler {
   private var previous: [String: ProcessRecord] = [:]
   private var previousSystem: TMSystem?
+  private var previousCPUs: [CPUCounter] = []
   private var previousTime: Double?
   private var bundles: [String: (String, String)] = [:]
   public init() {}
   public func resetBaseline() {
     previous = [:]
     previousSystem = nil
+    previousCPUs = []
     previousTime = nil
   }
   public func sample() -> ([ProcessRecord], SystemSnapshot) {
@@ -236,6 +263,22 @@ public final class Sampler {
     }
     var sys = SystemSnapshot()
     sys.raw = raw
+    var cpuPointer: UnsafeMutablePointer<TMCPU>?
+    let cpuCount = Int(tm_cpu_load(&cpuPointer))
+    if let cpuPointer {
+      let counters = (0..<cpuCount).map { i in
+        let c = cpuPointer[i]
+        return CPUCounter(user: c.user, system: c.system, idle: c.idle, nice: c.nice)
+      }
+      sys.logicalCPUs = counters.enumerated().map { i, value in
+        previousCPUs.count == counters.count ? value.utilization(since: previousCPUs[i]) : nil
+      }
+      previousCPUs = counters
+      tm_free(cpuPointer)
+    } else {
+      previousCPUs = []
+    }
+
     if let old = previousSystem {
       let busy = raw.cpu_user + raw.cpu_system + raw.cpu_nice
       let oldBusy = old.cpu_user + old.cpu_system + old.cpu_nice

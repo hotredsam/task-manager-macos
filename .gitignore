@@ -5,3 +5,5 @@
 *.dSYM/
 *.xcuserstate
 xcuserdata/
+
+*.zip
