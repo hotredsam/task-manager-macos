@@ -243,8 +243,8 @@ final class WindowsTitleBar: NSView {
   let minimize = CaptionButton(.minimize)
   let maximize = CaptionButton(.maximize)
   let close = CaptionButton(.close)
-  let search: NSSearchField
-  init(search: NSSearchField, controller: AppController) {
+  let search: NSTextField
+  init(search: NSTextField, controller: AppController) {
     self.search = search
     super.init(frame: .zero)
     let hamburger = FlatButton(frame: .zero)
@@ -299,18 +299,32 @@ final class WindowsTitleBar: NSView {
   }
 }
 
-final class WindowsSearchCell: NSSearchFieldCell {
-  override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
-    NSRect(x: rect.maxX - 28, y: rect.midY - 9, width: 18, height: 18)
+final class WindowsSearchCell: NSTextFieldCell {
+  func textRect(_ bounds: NSRect) -> NSRect {
+    let height = ceil((font ?? winFont(12)).ascender - (font ?? winFont(12)).descender) + 2
+    return NSRect(
+      x: bounds.minX + 10, y: bounds.midY - height / 2,
+      width: max(0, bounds.width - 64), height: height)
   }
-  override func cancelButtonRect(forBounds rect: NSRect) -> NSRect {
-    NSRect(x: rect.maxX - 52, y: rect.midY - 8, width: 16, height: 16)
+  override func drawingRect(forBounds rect: NSRect) -> NSRect { textRect(rect) }
+  override func titleRect(forBounds rect: NSRect) -> NSRect { textRect(rect) }
+  override func edit(
+    withFrame rect: NSRect, in view: NSView, editor: NSText,
+    delegate: Any?, event: NSEvent?
+  ) {
+    super.edit(
+      withFrame: textRect(rect), in: view, editor: editor, delegate: delegate, event: event)
   }
-  override func searchTextRect(forBounds rect: NSRect) -> NSRect {
-    NSRect(x: rect.minX + 10, y: rect.midY - 9, width: max(0, rect.width - 68), height: 19)
+  override func select(
+    withFrame rect: NSRect, in view: NSView, editor: NSText,
+    delegate: Any?, start: Int, length: Int
+  ) {
+    super.select(
+      withFrame: textRect(rect), in: view, editor: editor,
+      delegate: delegate, start: start, length: length)
   }
 }
-final class WindowsSearchField: NSSearchField {
+final class WindowsSearchField: NSTextField {
   override init(frame: NSRect) {
     super.init(frame: frame)
     cell = WindowsSearchCell(textCell: "")
@@ -319,14 +333,53 @@ final class WindowsSearchField: NSSearchField {
     isEditable = true
     isSelectable = true
     isEnabled = true
+    cell?.usesSingleLineMode = true
+    cell?.isScrollable = true
+    setAccessibilityRole(.textField)
+    setAccessibilitySubrole(.searchField)
   }
   required init?(coder: NSCoder) { fatalError() }
   override func draw(_ dirtyRect: NSRect) {
     winColor(1, 0.18).setFill()
     NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4).fill()
-    winColor(0.6, 0.5).setFill()
-    NSRect(x: 3, y: 0, width: bounds.width - 6, height: 1).fill()
+    let editing = currentEditor() != nil
+    (editing ? accent : winColor(0.6, 0.5)).setFill()
+    NSRect(
+      x: 3, y: isFlipped ? bounds.height - (editing ? 2 : 1) : 0,
+      width: max(0, bounds.width - 6), height: editing ? 2 : 1
+    ).fill()
     super.draw(dirtyRect)
+    let direction: CGFloat = isFlipped ? 1 : -1
+    let center = NSPoint(x: bounds.width - 19, y: bounds.midY - 2 * direction)
+    let glass = NSBezierPath(
+      ovalIn: NSRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10))
+    glass.lineWidth = 1
+    glass.move(to: NSPoint(x: center.x + 3.5, y: center.y + 3.5 * direction))
+    glass.line(to: NSPoint(x: center.x + 8, y: center.y + 8 * direction))
+    NSColor.labelColor.setStroke()
+    glass.stroke()
+    if !stringValue.isEmpty {
+      let path = NSBezierPath()
+      path.lineWidth = 1
+      path.move(to: NSPoint(x: bounds.width - 46, y: bounds.midY - 4))
+      path.line(to: NSPoint(x: bounds.width - 38, y: bounds.midY + 4))
+      path.move(to: NSPoint(x: bounds.width - 46, y: bounds.midY + 4))
+      path.line(to: NSPoint(x: bounds.width - 38, y: bounds.midY - 4))
+      NSColor.secondaryLabelColor.setStroke()
+      path.stroke()
+    }
+  }
+  override func mouseDown(with event: NSEvent) {
+    let point = convert(event.locationInWindow, from: nil)
+    if !stringValue.isEmpty && point.x > bounds.width - 54 && point.x < bounds.width - 30 {
+      stringValue = ""
+      currentEditor()?.string = ""
+      delegate?.controlTextDidChange?(
+        Notification(name: NSControl.textDidChangeNotification, object: self))
+      needsDisplay = true
+    } else {
+      super.mouseDown(with: event)
+    }
   }
 }
 final class WindowsTableRow: NSTableRowView {

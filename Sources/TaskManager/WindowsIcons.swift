@@ -83,28 +83,33 @@ func windowsIcon(_ name: String) -> NSImage {
     case "services", "gearshape.2":
       let p = NSBezierPath()
       p.lineWidth = 1.5
-      p.move(to: NSPoint(x: 8, y: 5))
-      p.line(to: NSPoint(x: 8, y: 3))
+      p.lineJoinStyle = .round
+      p.move(to: NSPoint(x: 8.5, y: 5))
+      p.line(to: NSPoint(x: 8.5, y: 3.5))
       p.curve(
-        to: NSPoint(x: 15, y: 3), controlPoint1: NSPoint(x: 8, y: -1),
-        controlPoint2: NSPoint(x: 15, y: -1))
-      p.line(to: NSPoint(x: 15, y: 5))
-      p.line(to: NSPoint(x: 20, y: 5))
-      p.line(to: NSPoint(x: 20, y: 10))
+        to: NSPoint(x: 15.5, y: 3.5), controlPoint1: NSPoint(x: 8.5, y: 0.2),
+        controlPoint2: NSPoint(x: 15.5, y: 0.2))
+      p.line(to: NSPoint(x: 15.5, y: 5))
+      p.line(to: NSPoint(x: 19, y: 5))
+      p.line(to: NSPoint(x: 19, y: 9))
       p.curve(
-        to: NSPoint(x: 20, y: 17), controlPoint1: NSPoint(x: 25, y: 10),
-        controlPoint2: NSPoint(x: 25, y: 17))
-      p.line(to: NSPoint(x: 20, y: 21))
-      p.line(to: NSPoint(x: 15, y: 21))
+        to: NSPoint(x: 19, y: 15), controlPoint1: NSPoint(x: 13, y: 8),
+        controlPoint2: NSPoint(x: 13, y: 16))
+      p.line(to: NSPoint(x: 19, y: 19))
+      p.line(to: NSPoint(x: 15.5, y: 19))
+      p.line(to: NSPoint(x: 15.5, y: 20.5))
       p.curve(
-        to: NSPoint(x: 8, y: 21), controlPoint1: NSPoint(x: 15, y: 26),
-        controlPoint2: NSPoint(x: 8, y: 26))
-      p.line(to: NSPoint(x: 4, y: 21))
-      p.line(to: NSPoint(x: 4, y: 16))
+        to: NSPoint(x: 8.5, y: 20.5), controlPoint1: NSPoint(x: 15.5, y: 23.8),
+        controlPoint2: NSPoint(x: 8.5, y: 23.8))
+      p.line(to: NSPoint(x: 8.5, y: 19))
+      p.line(to: NSPoint(x: 5, y: 19))
+      p.line(to: NSPoint(x: 5, y: 15))
+      p.line(to: NSPoint(x: 3.5, y: 15))
       p.curve(
-        to: NSPoint(x: 4, y: 9), controlPoint1: NSPoint(x: -1, y: 16),
-        controlPoint2: NSPoint(x: -1, y: 9))
-      p.line(to: NSPoint(x: 4, y: 5))
+        to: NSPoint(x: 3.5, y: 9), controlPoint1: NSPoint(x: 0.2, y: 15),
+        controlPoint2: NSPoint(x: 0.2, y: 9))
+      p.line(to: NSPoint(x: 5, y: 9))
+      p.line(to: NSPoint(x: 5, y: 5))
       p.close()
       p.stroke()
     case "settings", "gearshape":

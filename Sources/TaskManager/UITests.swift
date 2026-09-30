@@ -35,6 +35,28 @@ extension AppController {
     search.stringValue = ""
     showPage(.processes)
     check(table.numberOfRows > 0, "Processes table populated")
+    for direction in [false, true] {
+      table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: direction)]
+      let active = table.tableColumns.filter {
+        ($0.headerCell as? MetricHeader)?.sortAscending != nil
+      }
+      check(
+        active.count == 1 && active.first?.identifier.rawValue == "cpu"
+          && (active.first?.headerCell as? MetricHeader)?.sortAscending == direction,
+        "CPU header indicates \(direction ? "ascending" : "descending") sort")
+    }
+    showPage(.services)
+    window.contentView?.layoutSubtreeIfNeeded()
+    if let cell = search.cell as? WindowsSearchCell {
+      let rect = cell.textRect(search.bounds)
+      check(
+        search.bounds.contains(rect) && abs(rect.midY - search.bounds.midY) < 1,
+        "Services search text is inset and vertically centered")
+    } else {
+      check(false, "Services search uses centered text cell")
+    }
+    showPage(.processes)
+
     search.stringValue = String(getpid())
     controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
     check(

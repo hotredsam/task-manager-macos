@@ -15,12 +15,20 @@ enum Resource: String, CaseIterable {
   case network = "Network"
   case gpu = "GPU"
   var color: NSColor {
+    let rgb: (CGFloat, CGFloat, CGFloat)
     switch self {
-    case .cpu: return accent
-    case .memory: return .systemPurple
-    case .disk: return .systemGreen
-    case .network: return .systemOrange
-    case .gpu: return .systemTeal
+    case .cpu: rgb = (76, 137, 159)
+    case .memory: rgb = (155, 108, 170)
+    case .disk: rgb = (123, 164, 68)
+    case .network: rgb = (170, 120, 68)
+    case .gpu: rgb = (124, 114, 160)
+    }
+    return NSColor(name: nil) { appearance in
+      let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+      let lift: CGFloat = dark ? 35 : 0
+      return NSColor(
+        srgbRed: (rgb.0 + lift) / 255, green: (rgb.1 + lift) / 255,
+        blue: (rgb.2 + lift) / 255, alpha: 1)
     }
   }
 }
@@ -40,29 +48,35 @@ final class GraphView: NSView {
   var second: [(Double, Double)] = []
   var maxValue: Double = 100
   var seconds: Double = 60
-  var color = accent
+  var color = Resource.cpu.color
   var unavailable: String?
   var compact = false
+  var thumbnail = false
   override var isFlipped: Bool { true }
   override func draw(_ dirtyRect: NSRect) {
     guard bounds.width > 2, bounds.height > 2 else { return }
     let rect = bounds.insetBy(dx: 1, dy: 1)
-    color.withAlphaComponent(0.035).setFill()
+    winContent.setFill()
     rect.fill()
-    let grid = NSBezierPath()
-    grid.lineWidth = 0.5
-    for i in 0...10 {
-      let x = rect.minX + rect.width * CGFloat(i) / 10
-      grid.move(to: NSPoint(x: x, y: rect.minY))
-      grid.line(to: NSPoint(x: x, y: rect.maxY))
+    if !thumbnail {
+      let grid = NSBezierPath()
+      grid.lineWidth = 0.5
+      // Windows uses a square graph grid rather than stretching a fixed cell count.
+      for x in stride(from: rect.maxX, through: rect.minX, by: -20) {
+        grid.move(to: NSPoint(x: x, y: rect.minY))
+        grid.line(to: NSPoint(x: x, y: rect.maxY))
+      }
+      for y in stride(from: rect.maxY, through: rect.minY, by: -20) {
+        grid.move(to: NSPoint(x: rect.minX, y: y))
+        grid.line(to: NSPoint(x: rect.maxX, y: y))
+      }
+      winColor(0.88, 0.24).setStroke()
+      grid.stroke()
     }
-    for i in 0...5 {
-      let y = rect.minY + rect.height * CGFloat(i) / 5
-      grid.move(to: NSPoint(x: rect.minX, y: y))
-      grid.line(to: NSPoint(x: rect.maxX, y: y))
-    }
-    color.withAlphaComponent(0.19).setStroke()
-    grid.stroke()
+    (thumbnail ? color.withAlphaComponent(0.45) : winColor(0.85, 0.3)).setStroke()
+    let border = NSBezierPath(rect: rect)
+    border.lineWidth = 0.5
+    border.stroke()
     guard unavailable == nil else {
       if !compact {
         let text = unavailable!
@@ -100,10 +114,10 @@ final class GraphView: NSView {
         area.line(to: NSPoint(x: last.x, y: rect.maxY))
         area.line(to: NSPoint(x: first.x, y: rect.maxY))
         area.close()
-        color.withAlphaComponent(0.14).setFill()
+        color.withAlphaComponent(0.065).setFill()
         area.fill()
       }
-      path.lineWidth = compact ? 1 : 1.8
+      path.lineWidth = 1
       if !fill { path.setLineDash([4, 3], count: 2, phase: 0) }
       color.withAlphaComponent(fill ? 1 : 0.65).setStroke()
       path.stroke()
@@ -114,14 +128,15 @@ final class GraphView: NSView {
 }
 final class ResourceCard: NSButton {
   let graph = GraphView()
-  let titleLabel = label("", 13, .semibold)
-  let detailLabel = label("", 11, .regular, .secondaryLabelColor)
+  let titleLabel = label("", 12)
+  let detailLabel = label("", 10)
   var selected = false { didSet { needsDisplay = true } }
   override init(frame: NSRect) {
     super.init(frame: frame)
     isBordered = false
     title = ""
     graph.compact = true
+    graph.thumbnail = true
     addSubview(graph)
     addSubview(titleLabel)
     addSubview(detailLabel)
@@ -130,18 +145,14 @@ final class ResourceCard: NSButton {
   required init?(coder: NSCoder) { fatalError() }
   override func layout() {
     super.layout()
-    graph.frame = NSRect(x: 12, y: 20, width: 62, height: 38)
-    titleLabel.frame = NSRect(x: 84, y: 17, width: max(0, bounds.width - 96), height: 20)
-    detailLabel.frame = NSRect(x: 84, y: 40, width: max(0, bounds.width - 96), height: 19)
+    graph.frame = NSRect(x: 12, y: 13, width: 60, height: 40)
+    titleLabel.frame = NSRect(x: 84, y: 13, width: max(0, bounds.width - 96), height: 20)
+    detailLabel.frame = NSRect(x: 84, y: 33, width: max(0, bounds.width - 96), height: 19)
   }
   override func draw(_ dirtyRect: NSRect) {
     if selected {
-      NSColor.controlAccentColor.withAlphaComponent(0.09).setFill()
-      NSBezierPath(roundedRect: bounds.insetBy(dx: 3, dy: 2), xRadius: 5, yRadius: 5).fill()
-      graph.color.setFill()
-      NSBezierPath(
-        roundedRect: NSRect(x: 3, y: 24, width: 3, height: 28), xRadius: 1.5, yRadius: 1.5
-      ).fill()
+      winColor(0.955, 0.22).setFill()
+      bounds.insetBy(dx: 3, dy: 0).fill()
     }
   }
   override func hitTest(_ point: NSPoint) -> NSView? {
@@ -158,8 +169,8 @@ final class PerformanceView: NSView {
   var kernelTimes = UserDefaults.standard.bool(forKey: "cpuKernelTimes")
   var summaryMode = false
   var detailSections: [NSView] = []
-  let heading = label("CPU", 28, .semibold)
-  let hardware = label("", 13, .regular, .secondaryLabelColor)
+  let heading = label("CPU", 24)
+  let hardware = label("", 12)
   let upper = label("% Utilization", 11, .regular, .secondaryLabelColor)
   let limit = label("100%", 11, .regular, .secondaryLabelColor)
   let timeline = label("60 seconds", 11, .regular, .secondaryLabelColor)
@@ -188,7 +199,7 @@ final class PerformanceView: NSView {
       cards[r] = card
       cardStack.addArrangedSubview(card)
       card.widthAnchor.constraint(equalToConstant: 207).isActive = true
-      card.heightAnchor.constraint(equalToConstant: 77).isActive = true
+      card.heightAnchor.constraint(equalToConstant: 64).isActive = true
     }
     let cardScroll = NSScrollView()
     cardScroll.contentView = FlippedClipView()
@@ -356,8 +367,12 @@ final class PerformanceView: NSView {
       switch r {
       case .cpu: c.detailLabel.stringValue = String(format: "%.1f%%", s.cpu)
       case .memory:
-        c.detailLabel.stringValue =
-          String(format: "%.0f%%", s.memoryPercent) + "  ·  " + bytes(Double(raw.ram))
+        let binary = UserDefaults.standard.string(forKey: "units") != "Decimal"
+        let divisor = binary ? 1_073_741_824.0 : 1_000_000_000.0
+        c.detailLabel.stringValue = String(
+          format: "%.1f/%.1f %@ (%.0f%%)",
+          Double(s.used) / divisor, Double(raw.ram) / divisor, binary ? "GiB" : "GB",
+          s.memoryPercent)
       case .disk: c.detailLabel.stringValue = bytes(s.read + s.write) + "/s"
       case .network: c.detailLabel.stringValue = bytes(s.received + s.sent) + "/s"
       case .gpu: c.detailLabel.stringValue = gpu == nil ? "Not detected" : "Utilization unavailable"
@@ -590,7 +605,9 @@ final class LogicalCPUGrid: NSView {
         } : []
       graph.toolTip =
         "CPU \(index) • "
-        + (graph.points.last.map { String(format: "%.1f%%", $0.1) } ?? "Collecting…")
+        + (graph.points.last.map {
+          String(format: "%.1f%% utilization • %.1f%% idle", $0.1, 100 - $0.1)
+        } ?? "Collecting…")
       graph.setAccessibilityLabel(graph.toolTip)
       graph.needsDisplay = true
     }

@@ -92,10 +92,11 @@ final class HeatCell: NSTableCellView {
   let title = label("")
   let icon = NSImageView()
   let disclosure = NSButton()
-  var textInset:CGFloat=8
+  var textInset: CGFloat = 8
   override func layout() {
     super.layout()
-    title.frame=NSRect(x:textInset,y:5,width:max(0,bounds.width-textInset-10),height:18)
+    title.frame = NSRect(
+      x: textInset, y: 5, width: max(0, bounds.width - textInset - 10), height: 18)
   }
   var heat: Double = 0 { didSet { needsDisplay = true } }
   override init(frame: NSRect) {
@@ -136,19 +137,35 @@ final class HeatCell: NSTableCellView {
     }
     let left: CGFloat = 8 + indent + (expand == nil ? 0 : 18) + (image == nil ? 0 : 23)
     title.frame = NSRect(x: left, y: 5, width: max(0, bounds.width - left - 10), height: 18)
-    textInset=left
-    needsLayout=true
+    textInset = left
+    needsLayout = true
     icon.frame = NSRect(x: 8 + indent + (expand == nil ? 0 : 18), y: 5, width: 17, height: 17)
     disclosure.frame = NSRect(x: 5 + indent, y: 5, width: 17, height: 18)
   }
 }
 final class MetricHeader: NSTableHeaderCell {
   var summary = ""
+  var sortAscending: Bool?
   override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+    let active = sortAscending != nil && !stringValue.isEmpty
+    let background = active ? winColor(0.90, 0.24) : winContent
+    defer {
+      if let ascending = sortAscending, !stringValue.isEmpty {
+        let x = cellFrame.midX
+        let y = cellFrame.minY + 4
+        let arrow = NSBezierPath()
+        arrow.lineWidth = 1
+        arrow.move(to: NSPoint(x: x - 3.5, y: y + (ascending ? 3.5 : 0)))
+        arrow.line(to: NSPoint(x: x, y: y + (ascending ? 0 : 3.5)))
+        arrow.line(to: NSPoint(x: x + 3.5, y: y + (ascending ? 3.5 : 0)))
+        NSColor.secondaryLabelColor.setStroke()
+        arrow.stroke()
+      }
+    }
     // AppKit reuses the final header cell with an empty title to paint the
     // trailing gutter. Do not repeat its metric in that empty region.
     if summary.isEmpty || stringValue.isEmpty {
-      winContent.setFill()
+      background.setFill()
       cellFrame.fill()
       if !stringValue.isEmpty {
         (stringValue as NSString).draw(
@@ -160,12 +177,14 @@ final class MetricHeader: NSTableHeaderCell {
       NSRect(x: cellFrame.maxX - 1, y: cellFrame.minY, width: 0.5, height: cellFrame.height).fill()
       return
     }
-    winContent.setFill()
+    background.setFill()
     cellFrame.fill()
     let p = NSMutableParagraphStyle()
     p.alignment = .right
+    let measuredWidth = (summary as NSString).size(withAttributes: [.font: winFont(16)]).width
+    let summarySize = max(10, min(16, 16 * max(1, cellFrame.width - 18) / max(1, measuredWidth)))
     let top: [NSAttributedString.Key: Any] = [
-      .font: winFont(16),
+      .font: winFont(summarySize),
       .foregroundColor: NSColor.labelColor, .paragraphStyle: p,
     ]
     let bottom: [NSAttributedString.Key: Any] = [
@@ -174,11 +193,11 @@ final class MetricHeader: NSTableHeaderCell {
     ]
     (summary as NSString).draw(
       in: NSRect(
-        x: cellFrame.minX + 5, y: cellFrame.minY + 4, width: cellFrame.width - 18, height: 22),
+        x: cellFrame.minX + 5, y: cellFrame.minY + 9, width: cellFrame.width - 18, height: 22),
       withAttributes: top)
     (stringValue as NSString).draw(
       in: NSRect(
-        x: cellFrame.minX + 5, y: cellFrame.minY + 27, width: cellFrame.width - 18, height: 17),
+        x: cellFrame.minX + 5, y: cellFrame.minY + 32, width: cellFrame.width - 18, height: 17),
       withAttributes: bottom)
     NSColor.separatorColor.setFill()
     NSRect(x: cellFrame.maxX - 1, y: cellFrame.minY, width: 0.5, height: cellFrame.height).fill()

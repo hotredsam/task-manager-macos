@@ -291,7 +291,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     spacer.setContentHuggingPriority(.defaultLow, for: .vertical)
     search.placeholderString = "Type a name, publisher, or PID to search"
     search.delegate = self
-    search.sendsSearchStringImmediately = true
     search.controlSize = .regular
     search.font = winFont(12)
     search.focusRingType = .none
@@ -903,6 +902,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
     }
     for tc in table.tableColumns {
       guard let header = tc.headerCell as? MetricHeader else { continue }
+      header.sortAscending = tc.identifier.rawValue == sortKey ? ascending : nil
       header.summary =
         [.processes, .users].contains(page)
         ? ([
