@@ -1,0 +1,8 @@
+Published on @hotredsam, September 29, 2026.
+
+Video post: https://x.com/hotredsam/status/2105160333963022736
+GitHub reply: https://x.com/hotredsam/status/2105160381404750033
+Repository: https://github.com/hotredsam/task-manager-macos
+Release: https://github.com/hotredsam/task-manager-macos/releases/tag/v2.0.0
+
+The promotional video is hosted on X and is not committed to this repository.
