@@ -1,0 +1,9 @@
+Windows Task Manager… on a Mac? 👀
+
+Built with Codex Ultrafast. Rewritten in Rust.
+
+Live per-core graphs. Real macOS data. Efficiency mode linked to Low Power Mode.
+
+Open source. MIT.
+
+Would you use this? GitHub in the reply ↓
