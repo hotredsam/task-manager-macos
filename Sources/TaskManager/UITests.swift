@@ -35,15 +35,18 @@ extension AppController {
     search.stringValue = ""
     showPage(.processes)
     check(table.numberOfRows > 0, "Processes table populated")
-    for direction in [false, true] {
-      table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: direction)]
-      let active = table.tableColumns.filter {
-        ($0.headerCell as? MetricHeader)?.sortAscending != nil
+    for key in ["cpu", "memory", "disk", "network"] {
+      for direction in [false, true] {
+        table.sortDescriptors = [NSSortDescriptor(key: key, ascending: direction)]
+        let active = table.tableColumns.filter {
+          ($0.headerCell as? MetricHeader)?.sortAscending != nil
+        }
+        check(
+          active.count == 1 && active.first?.identifier.rawValue == key
+            && active.first?.sortDescriptorPrototype?.key == key
+            && (active.first?.headerCell as? MetricHeader)?.sortAscending == direction,
+          "\(key) header indicates \(direction ? "ascending" : "descending") sort")
       }
-      check(
-        active.count == 1 && active.first?.identifier.rawValue == "cpu"
-          && (active.first?.headerCell as? MetricHeader)?.sortAscending == direction,
-        "CPU header indicates \(direction ? "ascending" : "descending") sort")
     }
     showPage(.services)
     window.contentView?.layoutSubtreeIfNeeded()

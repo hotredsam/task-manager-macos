@@ -622,9 +622,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       tc.headerCell = MetricHeader(textCell: c.title)
       let key = "columns.\(page.rawValue).\(c.key)"
       tc.isHidden = defaults.object(forKey: key) != nil ? defaults.bool(forKey: key) : c.hidden
-      if !["network", "gpu", "engine", "energy", "impact"].contains(c.key) {
-        tc.sortDescriptorPrototype = NSSortDescriptor(key: c.key, ascending: !c.numeric)
-      }
+      // Even unavailable-value columns remain selectable; their rows compare as ties.
+      tc.sortDescriptorPrototype = NSSortDescriptor(key: c.key, ascending: !c.numeric)
       table.addTableColumn(tc)
     }
     table.autosaveName = "TaskManager.Reference3.\(page.rawValue)"
@@ -982,7 +981,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
       icon = icons[r.iconPath]
     }
     if key == "name", icon == nil {
-      icon = windowsIcon(page == .users && r.group ? "users" : "app")
+      icon = windowsIcon(page == .services ? "service.item" : (page == .users && r.group ? "users" : "app"))
     }
     let text =
       key == "memory" && defaults.bool(forKey: "percent.memory") && r.numbers["memory"] != nil

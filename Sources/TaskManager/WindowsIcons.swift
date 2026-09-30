@@ -80,6 +80,32 @@ func windowsIcon(_ name: String) -> NSImage {
         circle(2.5, y, 0.7)
         path([(7, y), (22, y)])
       }
+    case "service.item":
+      func gear(_ x: CGFloat, _ y: CGFloat, _ radius: CGFloat, _ teeth: Int) {
+        let outline = NSBezierPath()
+        for i in 0..<(teeth * 4) {
+          let angle = CGFloat(i) * 2 * .pi / CGFloat(teeth * 4)
+          let r = radius * ([0, 3].contains(i % 4) ? 0.78 : 1)
+          let point = NSPoint(x: x + cos(angle) * r, y: y + sin(angle) * r)
+          if i == 0 { outline.move(to: point) } else { outline.line(to: point) }
+        }
+        outline.close()
+        NSColor(srgbRed: 0.85, green: 0.91, blue: 0.94, alpha: 1).setFill()
+        outline.fill()
+        NSColor(srgbRed: 0.36, green: 0.52, blue: 0.62, alpha: 1).setStroke()
+        outline.lineWidth = 0.8
+        outline.stroke()
+        let hole = NSBezierPath(
+          ovalIn: NSRect(
+            x: x - radius * 0.38, y: y - radius * 0.38,
+            width: radius * 0.76, height: radius * 0.76))
+        NSColor.white.setFill()
+        hole.fill()
+        hole.lineWidth = 0.7
+        hole.stroke()
+      }
+      gear(9, 10, 8, 10)
+      gear(17, 18, 5, 8)
     case "services", "gearshape.2":
       let p = NSBezierPath()
       p.lineWidth = 1.5
@@ -176,6 +202,6 @@ func windowsIcon(_ name: String) -> NSImage {
     }
     return true
   }
-  image.isTemplate = true
+  image.isTemplate = name != "service.item"
   return image
 }
