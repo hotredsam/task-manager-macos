@@ -198,17 +198,17 @@ final class PerformanceView: NSView {
       card.setAccessibilityIdentifier("resource-\(r.rawValue)")
       cards[r] = card
       cardStack.addArrangedSubview(card)
-      card.widthAnchor.constraint(equalToConstant: 207).isActive = true
+      card.widthAnchor.constraint(equalTo: cardStack.widthAnchor, constant: -10).isActive = true
       card.heightAnchor.constraint(equalToConstant: 64).isActive = true
     }
-    let cardScroll = NSScrollView()
+    let cardScroll = WindowsScrollView()
     cardScroll.contentView = FlippedClipView()
     cardScroll.drawsBackground = false
     cardScroll.documentView = cardStack
     cardScroll.hasVerticalScroller = true
     cardScroll.autohidesScrollers = true
     cardStack.translatesAutoresizingMaskIntoConstraints = false
-    cardStack.widthAnchor.constraint(equalTo: cardScroll.widthAnchor).isActive = true
+    cardStack.widthAnchor.constraint(equalTo: cardScroll.contentView.widthAnchor).isActive = true
     cardStack.topAnchor.constraint(equalTo: cardScroll.contentView.topAnchor).isActive = true
     cardStack.leadingAnchor.constraint(equalTo: cardScroll.contentView.leadingAnchor).isActive =
       true

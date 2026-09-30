@@ -50,6 +50,17 @@ extension AppController {
     }
     showPage(.services)
     window.contentView?.layoutSubtreeIfNeeded()
+    check(
+      scroll.scrollerStyle == .legacy && scroll.verticalScroller is WindowsScroller
+        && scroll.horizontalScroller is WindowsScroller,
+      "Table uses Windows scrollbars without overlays")
+    let contentBeforeScroll = scroll.contentView.bounds.origin
+    table.scrollRowToVisible(min(30, max(0, table.numberOfRows - 1)))
+    check(
+      scroll.contentView.bounds.origin.y > contentBeforeScroll.y,
+      "Windows scrollbar content scrolls vertically")
+    table.scrollRowToVisible(0)
+
     if let cell = search.cell as? WindowsSearchCell {
       let rect = cell.textRect(search.bounds)
       check(

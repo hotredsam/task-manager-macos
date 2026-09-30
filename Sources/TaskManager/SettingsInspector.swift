@@ -63,14 +63,14 @@ extension AppController {
     note.lineBreakMode = .byWordWrapping
     panel.addArrangedSubview(note)
     note.widthAnchor.constraint(equalTo: panel.widthAnchor, constant: -64).isActive = true
-    let scroll = NSScrollView()
+    let scroll = WindowsScrollView()
     scroll.contentView = FlippedClipView()
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
     scroll.drawsBackground = false
     scroll.documentView = panel
     panel.translatesAutoresizingMaskIntoConstraints = false
-    panel.widthAnchor.constraint(equalTo: scroll.widthAnchor).isActive = true
+    panel.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
     panel.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor).isActive = true
     panel.topAnchor.constraint(equalTo: scroll.contentView.topAnchor).isActive = true
     return scroll
@@ -164,7 +164,7 @@ extension AppController {
     let reason = p.protectedReason(currentUID: Int32(getuid()), ownPID: getpid())
     body.string =
       "\(reason.map{"PROTECTED: \($0)\n\n"} ?? "")Name: \(p.name)\nApplication: \(p.appName)\nPID: \(p.pid)\nParent PID: \(p.ppid)\nOwner: \(p.user) (UID \(p.uid))\nState: \(p.status)\nCPU: \(String(format:"%.2f%%",p.cpu)) of machine capacity\nCPU time: \(duration(Double(p.cpuNS)/1e9))\nResident memory: \(bytes(Double(p.memory)))\nThreads: \(p.threads)\nNice: \(p.nice)\nArchitecture: \(p.architecture)\nStarted: \(dateFormat.string(from:Date(timeIntervalSince1970:Double(p.start))))\n\nExecutable:\n\(p.path.isEmpty ? "Unavailable":p.path)\n\nBundle ID: \(p.bundleID.isEmpty ? "Unavailable":p.bundleID)\n\nReading arguments, signing information and file descriptors…"
-    let scroller = NSScrollView()
+    let scroller = WindowsScrollView()
     scroller.documentView = body
     scroller.hasVerticalScroller = true
     scroller.borderType = .bezelBorder

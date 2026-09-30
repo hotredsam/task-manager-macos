@@ -67,7 +67,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSTableViewDataSourc
   let subtitle = label("", 12, .regular, .secondaryLabelColor)
   let search = WindowsSearchField()
   let table = ProcessTable()
-  let scroll = NSScrollView()
+  let scroll = WindowsScrollView()
   let footer = label("Collecting system data…", 11, .regular, .secondaryLabelColor)
   let activity = label("●  Live", 11, .medium, accent)
   var sidebarWidth: NSLayoutConstraint!

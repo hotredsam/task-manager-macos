@@ -104,8 +104,8 @@ func windowsIcon(_ name: String) -> NSImage {
         hole.lineWidth = 0.7
         hole.stroke()
       }
-      gear(9, 10, 8, 10)
-      gear(17, 18, 5, 8)
+      gear(9, 14, 8, 10)
+      gear(17, 6, 5, 8)
     case "services", "gearshape.2":
       let p = NSBezierPath()
       p.lineWidth = 1.5
